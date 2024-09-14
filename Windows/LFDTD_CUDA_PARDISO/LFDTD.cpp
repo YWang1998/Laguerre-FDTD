@@ -1,8 +1,6 @@
 #include "global.h"
 #include "LFDTD.h"
 
-using namespace CBLAS;
-
 Solver LFDTD::_Solver;
 
 Precon LFDTD::_M;
@@ -20,7 +18,7 @@ LFDTD::LFDTD()
 
 void LFDTD::PrintQ_set(int i)
 {
-    if (i) PrintQ = 1;   
+    if (i) PrintQ = 1;
 }
 
 void LFDTD::Sparse_A_Val(std::ifstream& a_file, int n, const int NNZ)
@@ -3110,7 +3108,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         }
         else if (_Solver == _CUDA)
         {
-            cuBLAS::get_const_int_symbol(Nnode); 
+            cuBLAS::get_const_int_symbol(Nnode);
             iter_ptr = &LFDTD::BiCGSTABL_M_Kernel_Solver;
         }
         else
@@ -3124,7 +3122,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
             checkCudaErrors(cudaMemcpy(d_a_expanded, a_expanded.get(), 16 * Nnode * sizeof(double), cudaMemcpyHostToDevice));
             checkCudaErrors(cudaMemcpy(d_ja_expanded, ja_expanded.get(), 16 * Nnode * sizeof(int), cudaMemcpyHostToDevice));
         }
- 
+
     }
 
     auto start = std::chrono::high_resolution_clock::now();

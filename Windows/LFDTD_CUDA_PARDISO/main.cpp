@@ -59,12 +59,12 @@ int main()
     }
 
     auto status = Mesh_Window.wait_for(std::chrono::milliseconds(10));
-    if (status !=  std::future_status::ready)
+    if (status != std::future_status::ready)
     {
         std::cout << "Please exit the mesh window to close the program.\n";
         Mesh_Window.wait();
     }
-    
+
     return 0;
 }
 

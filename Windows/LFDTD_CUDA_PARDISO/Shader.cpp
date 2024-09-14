@@ -33,7 +33,7 @@ Shader::Shader(const std::string& filepath)
         std::cerr << "Fail to load shader source!\n";
         exit(-1);
     }
-    
+
 }
 
 unsigned int Shader::CompileShader(unsigned int type, const std::string& source)

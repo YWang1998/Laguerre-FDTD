@@ -16,8 +16,8 @@ public:
 
     LFDTD(); //Constructor
 
-    typedef void (LFDTD::*BiCGSTABL_ptr)(); // BiCGSTABL solver ptr
-    typedef void (LFDTD::*Sim_ptr)(LFDTD_Coe&); // PARDISO/CUDA solver ptr
+    typedef void (LFDTD::* BiCGSTABL_ptr)(); // BiCGSTABL solver ptr
+    typedef void (LFDTD::* Sim_ptr)(LFDTD_Coe&); // PARDISO/CUDA solver ptr
 
     static void Solver_Select(); // Query the user to make a selection of CPU/GPU based solver
 
@@ -71,7 +71,7 @@ public:
                 checkCudaErrors(cudaFree(d_a_expanded));
                 checkCudaErrors(cudaFree(d_ja_expanded));
             }
-            
+
             checkCudaErrors(cudaFree(d_nrmr0));
             checkCudaErrors(cudaFree(d_nrmr));
             checkCudaErrors(cudaFree(d_APr0));
@@ -114,7 +114,7 @@ public:
             checkCudaErrors(cusparseDestroyDnVec(vecMP));
             checkCudaErrors(cusparseDestroyDnVec(vecMS));
         }
-    } 
+    }
 
 private:
 
@@ -198,5 +198,4 @@ private:
     Sim_ptr sim_ptr;
 
 };
-
 

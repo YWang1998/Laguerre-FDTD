@@ -39,7 +39,6 @@ Header file that contains all the global types and parameters declaration
 #include <helper_functions.h>  // shared functions common to CUDA Samples
 #include <helper_cuda.h>       // CUDA error checking
 
-#include "Matrix.h"
 
 
 // Create a 3D array that is nx x ny x nz

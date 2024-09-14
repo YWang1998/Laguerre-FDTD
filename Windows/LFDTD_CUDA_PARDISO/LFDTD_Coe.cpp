@@ -99,7 +99,7 @@ void Grid::Mesh_Grid_PatchAntennaArray(const std::string& InputFile)
     fill_3D_array<double_array_type, double>(_mu, nx + 1, ny + 1, nz + 1, mu0);
 
     int jCellIndex[] = { 24 + PML + 1,40 + PML + 1,1 + PML,1 + PML,1 + 1,4 + 1 }; // jCellIndex is assumed to be 1-indexed
-    int jResistorIndex[] = {0}; // jResistorIndex is assumed to be 1-indexed
+    int jResistorIndex[] = { 0 }; // jResistorIndex is assumed to be 1-indexed
     _JCount = (jCellIndex[1] - jCellIndex[0] + 1) * (jCellIndex[3] - jCellIndex[2] + 1);// Number of parallel current sources
     num_Resistor = 0; num_probe = 1;
     //_jResistorIndex = std::make_unique<int[]>(num_Resistor * 6);
@@ -333,7 +333,7 @@ void Grid::Mesh_Grid()
 
         }
     }
-    
+
 
 }
 
@@ -1258,7 +1258,7 @@ void Grid::Mesh_Grid_4PortFilter_MS()
 
 
     int jCellIndex[] = { PML + 10, PML + 15, PML + 1, PML + 1, 2 + 1, 3 + 1 }; // jCellIndex is assumed to be 1-indexed
-    int jResistorIndex[] = { PML + 10, PML + 15, ny - PML + 1, ny - PML + 1, 2 + 1, 3 + 1}; // jResistorIndex is assumed to be 1-indexed
+    int jResistorIndex[] = { PML + 10, PML + 15, ny - PML + 1, ny - PML + 1, 2 + 1, 3 + 1 }; // jResistorIndex is assumed to be 1-indexed
     _JCount = (jCellIndex[1] - jCellIndex[0] + 1) * (jCellIndex[3] - jCellIndex[2] + 1);// Number of parallel current sources
     num_Resistor = 1; num_probe = 2;
     _jResistorIndex = std::make_unique<int[]>(num_Resistor * 6);
@@ -1455,7 +1455,7 @@ void Grid::Mesh_Visual()
                     glm::mat4 model = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
                     glm::mat4 RGB = glm::mat4(1.0f);
 
-                    if (_sigmay[i][j][k+1] && _sigmax[i][j][k+1] && _sigmay[i + 1][j][k+1] && _sigmax[i][j + 1][k+1] && _eps[i][j][k + 1] != eps0) // Bottom GND mesh view
+                    if (_sigmay[i][j][k + 1] && _sigmax[i][j][k + 1] && _sigmay[i + 1][j][k + 1] && _sigmax[i][j + 1][k + 1] && _eps[i][j][k + 1] != eps0) // Bottom GND mesh view
                     {
                         RGB = glm::translate(RGB, glm::vec3(1.0f, 1.0f, 0.0f));
                         source.setMat4("RGB", RGB);
@@ -1467,7 +1467,7 @@ void Grid::Mesh_Visual()
                     }
                     else
                     {
-                        if ((_eps[i][j][k] != eps0) && (!_Rz[i][j][k]) && (!_Jz[i][j][k]) )
+                        if ((_eps[i][j][k] != eps0) && (!_Rz[i][j][k]) && (!_Jz[i][j][k]))
                         {
                             RGB = glm::translate(RGB, glm::vec3(137.0f / 255.0f, 137.0f / 255.0f, 137.0f / 255.0f));
                             source.setMat4("RGB", RGB);
@@ -1489,10 +1489,10 @@ void Grid::Mesh_Visual()
                         {
                             if (_Rz[i + 1][j][k])
                             {
-                                RGB = glm::translate(RGB,glm::vec3(0.0f, 0.0f, 1.0f));
-                                source.setMat4("RGB",RGB);
+                                RGB = glm::translate(RGB, glm::vec3(0.0f, 0.0f, 1.0f));
+                                source.setMat4("RGB", RGB);
                             }
-                            else if (_eps[i][j+1][k] != eps0)
+                            else if (_eps[i][j + 1][k] != eps0)
                             {
                                 RGB = glm::translate(RGB, glm::vec3(137.0f / 255.0f, 137.0f / 255.0f, 137.0f / 255.0f));
                                 source.setMat4("RGB", RGB);

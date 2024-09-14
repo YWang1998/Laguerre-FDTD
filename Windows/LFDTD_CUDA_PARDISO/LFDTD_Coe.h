@@ -127,7 +127,7 @@ protected:
     std::unique_ptr<double[]> _dxe;
     std::unique_ptr<double[]> _dye;
     std::unique_ptr<double[]> _dze;
-    
+
     int qstop, tStep;
     int nx, ny, nz, PML;
     int num_Resistor, _JCount, num_probe;
@@ -261,7 +261,7 @@ private:
 
 };
 
-class LFDTD_Coe: public Grid{
+class LFDTD_Coe : public Grid {
 
 public:
     friend class LFDTD;
@@ -289,5 +289,5 @@ private:
     double_array_type _sumHz;
 
     std::unique_ptr<double[]> _waveform;
-    
+
 };

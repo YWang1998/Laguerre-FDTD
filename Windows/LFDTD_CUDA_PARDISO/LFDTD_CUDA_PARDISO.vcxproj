@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{5bb1e448-f66f-49ae-afb2-569ac02f9a2d}</ProjectGuid>
+    <ProjectGuid>{fa761639-667f-4e10-89c5-bf727f8eeec2}</ProjectGuid>
     <RootNamespace>LFDTDCUDAPARDISO</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -107,25 +107,21 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\Program Files\boost_1_83_0;$(SolutionDir)..\Common;$(SolutionDir)Dependecies\GLFW\include;$(SolutionDir)Dependecies\GLM\include;$(SolutionDir)Dependecies\GLEW\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <Optimization>Disabled</Optimization>
-      <PrecompiledHeader>Use</PrecompiledHeader>
-      <PrecompiledHeaderFile>global.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(SolutionDir)Dependecies\boost_1_83_0;$(SolutionDir)..\Common;$(SolutionDir)Dependecies\GLFW\include;$(SolutionDir)Dependecies\GLM\include;$(SolutionDir)Dependecies\GLEW\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>cublas.lib;cusparse.lib;cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;glfw3.lib;glfw3_mt.lib;glew32s.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)Dependecies\GLFW\lib-vc2022;$(SolutionDir)Dependecies\GLEW\lib\Release\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>cublas.lib;cusparse.lib;cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;glfw3.lib;glfw3_mt.lib;glew32s.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <CudaCompile>
-      <Include>C:\Users\Yifan Wang\OneDrive - Georgia Institute of Technology\Desktop\GT PhD\LFDTD - C++\NVIDIA cuSPARSE\Common;%(Include)</Include>
-      <Optimization>Od</Optimization>
-      <AdditionalOptions>-Xptxas -dlcm=ca -arch=compute_80 %(AdditionalOptions)</AdditionalOptions>
+      <Include>$(SolutionDir)..\Common;%(Include)</Include>
       <CodeGeneration />
+      <AdditionalOptions>-Xptxas -dlcm=ca -arch=compute_80 %(AdditionalOptions)</AdditionalOptions>
     </CudaCompile>
     <CudaLink>
-      <AdditionalLibraryDirectories>../Common;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(SolutionDir)..\Common</AdditionalDependencies>
     </CudaLink>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -136,60 +132,44 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\Program Files\boost_1_83_0;$(SolutionDir)..\Common;$(SolutionDir)Dependecies\GLFW\include;$(SolutionDir)Dependecies\GLM\include;$(SolutionDir)Dependecies\GLEW\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PrecompiledHeader>Use</PrecompiledHeader>
-      <PrecompiledHeaderFile>global.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(SolutionDir)Dependecies\boost_1_83_0;$(SolutionDir)..\Common;$(SolutionDir)Dependecies\GLFW\include;$(SolutionDir)Dependecies\GLM\include;$(SolutionDir)Dependecies\GLEW\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>cublas.lib;cusparse.lib;cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;glfw3.lib;glfw3_mt.lib;glew32s.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)Dependecies\GLFW\lib-vc2022;$(SolutionDir)Dependecies\GLEW\lib\Release\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>cublas.lib;cusparse.lib;cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;glfw3.lib;glfw3_mt.lib;glew32s.lib;opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <CudaCompile>
       <Include>$(SolutionDir)..\Common;%(Include)</Include>
-      <Optimization>O2</Optimization>
       <CodeGeneration />
-      <FastMath>true</FastMath>
-      <AdditionalOptions>-Xptxas -dlcm=ca -arch=compute_80 %(AdditionalOptions)</AdditionalOptions>
+      <Optimization>O2</Optimization>
     </CudaCompile>
     <CudaLink>
-      <AdditionalLibraryDirectories>../Common;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(SolutionDir)..\Common</AdditionalDependencies>
     </CudaLink>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="FileReader.h" />
-    <ClInclude Include="global.h" />
-    <ClInclude Include="LFDTD.h" />
-    <ClInclude Include="LFDTD_Coe.h" />
-    <ClInclude Include="Matrix.h" />
-    <ClInclude Include="resource.h" />
-    <ClInclude Include="Shader.h" />
-    <ClInclude Include="spMV.cuh" />
-    <ClInclude Include="Vector.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="global.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">global.h</PrecompiledHeaderFile>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
-      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">global.h</PrecompiledHeaderFile>
-    </ClCompile>
     <ClCompile Include="LFDTD.cpp" />
     <ClCompile Include="LFDTD_Coe.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Shader.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="LFDTD_CUDA_PARDISO.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Basic.shader" />
+    <ClInclude Include="FileReader.h" />
+    <ClInclude Include="global.h" />
+    <ClInclude Include="LFDTD.h" />
+    <ClInclude Include="LFDTD_Coe.h" />
+    <ClInclude Include="Shader.h" />
+    <ClInclude Include="spMV.cuh" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="spMV.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Basic.shader" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
