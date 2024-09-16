@@ -1,1 +1,1 @@
-CUDA helper functions
+# CUDA helper functions.
