@@ -14,6 +14,7 @@ The Windows samples are built using the Visual Studio 2022 IDE. Please also down
 ## Linux (Ubuntu 23.10)
 
 The Linux samples are built using Cmake. To build on Linux, download and install Boost C++ library:
+
 ```
 sudo apt-get install libboost-all-dev
 ```
@@ -21,7 +22,20 @@ sudo apt-get install libboost-all-dev
 Download and install the openGL [GLFW 3.4](https://www.glfw.org/docs/latest/compile.html) package. Another helpful resource to help you build the package is refered [here](https://stackoverflow.com/questions/17768008/how-to-build-install-glfw-3-and-use-it-in-a-linux-project).
 
 Install GLEW and GLM library:
+
 ```
 sudo apt-get install libglew-dev
 sudo apt install libglm-dev
+```
+
+If you encountered the error:
+
+```
+while loading shared libraries: libiomp5.so: cannot open shared object file: No such file or directory
+```
+
+during running the program, you can fix it by ran:
+
+```
+sudo apt-get install libomp-dev
 ```
