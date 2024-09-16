@@ -13,6 +13,8 @@ The Windows program is built using the Visual Studio 2022 IDE. Please include th
 
 ## Linux (Ubuntu 23.10)
 
+### Dependencies
+
 To build on Linux, download and install Boost C++ library:
 
 ```
@@ -39,6 +41,7 @@ when running the program, fix it by running the command:
 ```
 sudo apt-get install libomp-dev
 ```
+
 ### Build
 
 The Linux program is built using ```cmake``` command. To build the project, first type:
