@@ -11,4 +11,11 @@ Download and install the [Intel® oneAPI Math Kernel Library](https://www.intel.
 
 The Windows samples are built using the Visual Studio 2022 IDE. Please also download the Common folder when building the project.
 
-## Linux
+## Linux (Ubuntu 23.10)
+
+The Linux samples are built using Cmake. To build on Linux, download and install Boost C++ library:
+```
+sudo apt-get install libboost-all-dev
+```
+
+Download and install the openGL [GLFW 3.4](https://www.glfw.org/docs/latest/compile.html) package. Another helpful resource to help you build the package is refered [here](https://stackoverflow.com/questions/17768008/how-to-build-install-glfw-3-and-use-it-in-a-linux-project).
