@@ -56,7 +56,8 @@ cd <DIR_NAME>
 Depending on situation, run either ```Debug``` or ```Release``` mode:
 
 ```
-cmake .. -DCMAKE_BUILD_TYPE=Debug
-or
-cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake .. -DCMAKE_BUILD_TYPE=Debug/Release
+make
 ```
+
+The executable is named ```LFDTD_PARDISO_CUDA```
