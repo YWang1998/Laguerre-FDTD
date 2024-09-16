@@ -30,13 +30,13 @@ sudo apt-get install libglew-dev
 sudo apt install libglm-dev
 ```
 
-If you encountered the error:
+If you encountered the error when running the program:
 
 ```
 while loading shared libraries: libiomp5.so: cannot open shared object file: No such file or directory
 ```
 
-when running the program, fix it by running the command:
+fix it by running the command:
 
 ```
 sudo apt-get install libomp-dev
