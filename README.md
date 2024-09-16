@@ -9,11 +9,11 @@ Download and install the [Intel® oneAPI Math Kernel Library](https://www.intel.
 
 ## Windows
 
-The Windows samples are built using the Visual Studio 2022 IDE. Please also download the Common folder when building the project.
+The Windows program is built using the Visual Studio 2022 IDE. Please include the Common folder when building the project for either platform.
 
 ## Linux (Ubuntu 23.10)
 
-The Linux samples are built using Cmake. To build on Linux, download and install Boost C++ library:
+To build on Linux, download and install Boost C++ library:
 
 ```
 sudo apt-get install libboost-all-dev
@@ -34,8 +34,15 @@ If you encountered the error:
 while loading shared libraries: libiomp5.so: cannot open shared object file: No such file or directory
 ```
 
-during running the program, you can fix it by ran:
+when running the program, fix it by running the command:
 
 ```
 sudo apt-get install libomp-dev
+```
+### Build
+
+The Linux program is built using ```cmake``` command. To build the project, first type:
+
+```
+
 ```
