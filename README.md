@@ -9,7 +9,7 @@ Download and install the [Intel® oneAPI Math Kernel Library](https://www.intel.
 
 ## Windows
 
-The Windows program is built using the Visual Studio 2022 IDE. Please include the Common folder when building the project for either platform.
+The Windows program is built using the Visual Studio 2022 IDE. Please include the ```Common``` folder when building the project for either platform.
 
 ## Linux (Ubuntu 23.10)
 
@@ -44,7 +44,9 @@ sudo apt-get install libomp-dev
 
 ### Build
 
-The Linux program is built using ```cmake``` command. To build the project, first type:
+If you are using Clion IDE, download both the ```Linux``` and ```Common`` folder. Open the the project folder on Clion and it is done.
+
+If you are not working with any IDE, the Linux program can be built using ```cmake``` command. To build the project, first type:
 
 ```
 
