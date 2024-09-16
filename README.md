@@ -49,5 +49,14 @@ If you are using Clion IDE, download both the ```Linux``` and ```Common``` folde
 If you are not working with any IDE, the Linux program can be built using ```cmake``` command. To build the project, first type:
 
 ```
+mkdir <DIR_NAME>
+cd <DIR_NAME>
+```
 
+Depending on situation, run either ```Debug``` or ```Release``` mode:
+
+```
+cmake .. -DCMAKE_BUILD_TYPE=Debug
+or
+cmake .. -DCMAKE_BUILD_TYPE=Release
 ```
