@@ -21,7 +21,7 @@ sudo apt-get install libboost-all-dev
 Download and install the openGL [GLFW 3.4](https://www.glfw.org/docs/latest/compile.html) package. Another helpful resource to help you build the package is refered [here](https://stackoverflow.com/questions/17768008/how-to-build-install-glfw-3-and-use-it-in-a-linux-project).
 
 Install GLEW and GLM library:
-'''
+```
 sudo apt-get install libglew-dev
 sudo apt install libglm-dev
-'''
+```
