@@ -17,6 +17,8 @@ endif()
 
 set(CMAKE_CXX_FLAGS " -lGLEW -lGL -lX11 -lGLU -lglfw3 -std=c++17")
 
+set(CMAKE_PREFIX_PATH "/opt/intel/oneapi/tbb/2021.13/lib/cmake/tbb")
+
 find_package(GLEW 2.2.0 REQUIRED)
 
 # CUDA Helper Folder
