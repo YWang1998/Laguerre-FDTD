@@ -44,7 +44,7 @@ sudo apt-get install libomp-dev
 
 ### Build
 
-If you are using Clion IDE, download both the ```Linux``` and ```Common``` folder. Open the the project folder on Clion and it is done.
+If you are using Clion IDE, download both the ```Linux``` and ```Common``` folders. Open the the project folder on Clion and build accordingly.
 
 If you are not working with any IDE, the Linux program can be built using ```cmake``` command. To build the project, first type:
 
