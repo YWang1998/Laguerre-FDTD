@@ -1,12 +1,7 @@
-//
-// Created by yifanw on 9/6/24.
-//
-
-#ifndef LFDTD_H
-#define LFDTD_H
+#pragma once
 
 #include "LFDTD_Coe.h"
-#include "spMV.cuh"
+#include "spMv.cuh"
 
 // Define the format to printf MKL_INT values
 #if !defined(MKL_ILP64)
@@ -21,14 +16,14 @@ public:
 
     LFDTD(); //Constructor
 
-    typedef void (LFDTD::*BiCGSTABL_ptr)(); // BiCGSTABL solver ptr
-    typedef void (LFDTD::*Sim_ptr)(LFDTD_Coe&); // PARDISO/CUDA solver ptr
+    typedef void (LFDTD::* BiCGSTABL_ptr)(); // BiCGSTABL solver ptr
+    typedef void (LFDTD::* Sim_ptr)(LFDTD_Coe&); // PARDISO/CUDA solver ptr
 
     static void Solver_Select(); // Query the user to make a selection of CPU/GPU based solver
 
-    void PrintQ_set(INTEGER); // Set whether to prINTEGER out Q order on to screen
+    void PrintQ_set(int); // Set whether to print out Q order on to screen
 
-    void Sparse_A_Val(std::ifstream& a_file, INTEGER n, const INTEGER nnz); // This sets up the Sparse matrix entry value
+    void Sparse_A_Val(std::ifstream& a_file, int n, const int nnz); // This sets up the Sparse matrix entry value
     void SparseA_COO(const LFDTD_Coe& Coe);
     void COO2CSR();
     void CSR_Expanded();
@@ -68,6 +63,10 @@ public:
         /* Destroy contexts */
         if (_Solver)
         {
+
+            checkCudaErrors(cudaFreeHost(x_pinned));
+            checkCudaErrors(cudaFreeHost(b_pinned));
+
             checkCudaErrors(cusparseDestroy(cusparseHandle));
             checkCudaErrors(cublasDestroy(cublasHandle));
             if (_Solver == _CUDA_Expanded)
@@ -126,19 +125,21 @@ private:
     static Solver _Solver;
     static Precon _M;
 
-    std::vector<std::pair<INTEGER, INTEGER>> IA;
-    std::vector<INTEGER> JA;
+    std::vector<std::pair<int, int>> IA;
+    std::vector<int> JA;
     std::vector<double> VAL;
 
     std::unique_ptr<double[]> a;
     std::unique_ptr<double[]> a_expanded;
-    std::unique_ptr<INTEGER[]> ja;
-    std::unique_ptr<INTEGER[]> ja_expanded;
-    std::unique_ptr<INTEGER[]> ia;
+    std::unique_ptr<int[]> ja;
+    std::unique_ptr<int[]> ja_expanded;
+    std::unique_ptr<int[]> ia;
 
     std::unique_ptr<double[]> b;
-    std::unique_ptr<double[]> bs;
     std::unique_ptr<double[]> x;
+
+    double* b_pinned; // PINNED Memory for fast GPU-CPU data transfer
+    double* x_pinned; // PINNED Memory for fast GPU-CPU data transfer
 
     std::unique_ptr<double[]> sumE;
     std::unique_ptr<double[]> lagPoly;
@@ -147,10 +148,10 @@ private:
     std::unique_ptr<double[]> probe;
     std::unique_ptr<double[]> recordEq;
 
-    INTEGER PrintQ;
-    INTEGER ex011, ex111, ey111, ez111, ex122, ex120, ex102, ex100, ex121, ex101, ex112, ex110, ex021, ex012;
-    INTEGER ey101, ey212, ey012, ey210, ey010, ey112, ey110, ey201, ey211, ey011, ey102;
-    INTEGER ez210, ez221, ez201, ez021, ez001, ez211, ez011, ez121, ez101, ez110, ez120;
+    int PrintQ;
+    int ex011, ex111, ey111, ez111, ex122, ex120, ex102, ex100, ex121, ex101, ex112, ex110, ex021, ex012;
+    int ey101, ey212, ey012, ey210, ey010, ey112, ey110, ey201, ey211, ey011, ey102;
+    int ez210, ez221, ez201, ez021, ez001, ez211, ez011, ez121, ez101, ez110, ez120;
 
 
     /* Create CUBLAS context */
@@ -165,10 +166,10 @@ private:
     cusparseSpMatDescr_t matA = NULL;
     cusparseSpMatDescr_t matM = NULL;
 
-    /* Wrap raw data INTEGERo cuSPARSE generic API objects - Dense Vector on RHS */
+    /* Wrap raw data into cuSPARSE generic API objects - Dense Vector on RHS */
     cusparseDnVecDescr_t vecR = NULL, vecP = NULL, vecAP = NULL, vecAS = NULL, vecMP = NULL, vecMS = NULL;
 
-    std::vector<INTEGER> Convergence;
+    std::vector<int> Convergence;
 
     /* Sparse Matrix Vector Multiplication Buffer Needed for NVIDIA cusparse api*/
     size_t bufferSizeAP, bufferSizeAS, bufferSizeMP, bufferSizeMS; // AS = AR
@@ -182,20 +183,20 @@ private:
     std::unique_ptr<double> h_rjjr0;
 
     double* spMV_buffer, * d_a_expanded;// For expanded vector storage
-    INTEGER* d_ja_expanded;
+    int* d_ja_expanded;
     double* d_nrmr0, * d_nrmr, * d_APr0, * d_ASAS, * d_ASsj, * d_rjjr0;
     double nrmr0, nrmr, alpha, omega, beta, nalpha, nomega, nbeta, rjjr0, rjr0;
     double APr0, ASsj, ASAS;
     const double doubleone = 1.0;
     const double doublezero = 0;
-    INTEGER* d_col, * d_row, * d_col_m, * d_row_m;
+    int* d_col, * d_row, * d_col_m, * d_row_m;
     double* d_val, * d_val_m, * d_x, * d_AP, * d_AS;
     double* d_r, * d_r0, * d_p, * d_MP, * d_MS;
-    INTEGER FLAG; // 0 - Converged; 1 - no convergency
-    INTEGER iter;
+    int FLAG; // 0 - Converged; 1 - no convergency
+    int iter;
 
-    std::unique_ptr<INTEGER[]> ja_M;
-    std::unique_ptr<INTEGER[]> ia_M;
+    std::unique_ptr<int[]> ja_M;
+    std::unique_ptr<int[]> ia_M;
     std::unique_ptr<double[]> D;
     std::unique_ptr<double[]> I; // Value for Jacobi Preconditioner and Propose Preconditioner
 
@@ -203,4 +204,5 @@ private:
     Sim_ptr sim_ptr;
 
 };
-#endif //LFDTD_H
+
+
