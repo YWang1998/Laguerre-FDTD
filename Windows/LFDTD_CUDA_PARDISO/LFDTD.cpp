@@ -1,16 +1,14 @@
 #include "global.h"
 #include "LFDTD.h"
 
+using namespace CBLAS;
+
 Solver LFDTD::_Solver;
 
 Precon LFDTD::_M;
 
 LFDTD::LFDTD()
 {
-    b = std::make_unique<double[]>(Nnode);
-    bs = std::make_unique<double[]>(Nnode);
-    x = std::make_unique<double[]>(Nnode);
-
     sumE = std::make_unique<double[]>(Nnode);
     PrintQ = 0;
 
@@ -1951,7 +1949,7 @@ void LFDTD::BiCGSTABL_M_Solver()
 {
 
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
-    checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
     checkCudaErrors(cublasDscal(cublasHandle, Nnode, &doublezero, d_x, 1));
     /*2: Set \tilde{r0} = r0 */
     checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_r0, 1));
@@ -2057,7 +2055,7 @@ void LFDTD::BiCGSTABL_M_Solver()
         Convergence.emplace_back(iter);
         // printf("Number of iteration to converge is %d\n",iter);
         checkCudaErrors(cudaMemcpy(
-            x.get(), d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
     }
     else
     {
@@ -2076,7 +2074,7 @@ void LFDTD::BiCGSTABL_M_Kernel_Solver()
 
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
 
-    checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
 
     checkCudaErrors(cudaMemset(d_x, 0, Nnode * sizeof(double)));
 
@@ -2217,7 +2215,7 @@ void LFDTD::BiCGSTABL_M_Kernel_Solver()
         // printf("Number of iteration to converge is %d\n",iter);
 
         checkCudaErrors(cudaMemcpy(
-            x.get(), d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
 
     }
     else
@@ -2240,7 +2238,7 @@ void LFDTD::BiCGSTABL_M_Expanded_Kernel_Solver()
 
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
 
-    checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
 
     checkCudaErrors(cudaMemset(d_x, 0, Nnode * sizeof(double)));
 
@@ -2391,7 +2389,7 @@ void LFDTD::BiCGSTABL_M_Expanded_Kernel_Solver()
         // printf("Number of iteration to converge is %d\n",iter);
 
         checkCudaErrors(cudaMemcpy(
-            x.get(), d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
 
     }
     else
@@ -2410,6 +2408,9 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
     SparseA_COO(Coe);
     COO2CSR();
+
+    b = std::make_unique<double[]>(Nnode);
+    x = std::make_unique<double[]>(Nnode);
 
     recordEq = std::make_unique<double[]>(Coe.num_probe * (Coe.qstop + 1));
     probe = std::make_unique<double[]>(Coe.num_probe * Coe.tStep);
@@ -2595,7 +2596,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Build b vector
 
-        std::fill_n(b.get(), Nnode, 0.0); // Clear b vector     
+        // std::fill_n(b.get(), Nnode, 0.0); // Clear b vector     
 
         // Ex equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
@@ -3066,6 +3067,9 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
     lagPoly_sum = std::make_unique<double[]>(Coe.tStep);
     vtg = std::make_unique<double[]>(Coe.tStep);
 
+    checkCudaErrors(cudaMallocHost((void**)&b_pinned, Nnode * sizeof(double)));
+    checkCudaErrors(cudaMallocHost((void**)&x_pinned, Nnode * sizeof(double)));
+
     /* This will pick the best possible CUDA capable device */
     cudaDeviceProp deviceProp;
     int devID;
@@ -3208,8 +3212,8 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Build b vector
 
-        std::fill_n(b.get(), Nnode, 0.0); // Clear b vector   
-        std::fill_n(x.get(), Nnode, 0.0); // Clear x vector  
+        // std::fill_n(b_pinned, Nnode, 0.0); // Clear b vector   
+        // std::fill_n(x_pinned, Nnode, 0.0); // Clear x vector  
 
         // Ex equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
@@ -3221,7 +3225,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                 for (int k = 1; k < Coe.nz; ++k)
                 {
                     ex111 = Coe._nodeNum[i][j][k][0];
-                    b[ex111] = -2.0 * Coe._cey[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i][j - 1][k]) + 2 * Coe._cez[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i][j][k - 1])
+                    b_pinned[ex111] = -2.0 * Coe._cey[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i][j - 1][k]) + 2 * Coe._cez[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i][j][k - 1])
                         - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jx[i][j][k] - 2 * sumE[ex111];
                 }
             }
@@ -3237,7 +3241,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                 for (int k = 1; k < Coe.nz; ++k)
                 {
                     ey111 = Coe._nodeNum[i][j][k][1];
-                    b[ey111] = -2.0 * Coe._cez[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j][k - 1]) + 2 * Coe._cex[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i - 1][j][k])
+                    b_pinned[ey111] = -2.0 * Coe._cez[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j][k - 1]) + 2 * Coe._cex[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i - 1][j][k])
                         - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jy[i][j][k] - 2 * sumE[ey111];
                 }
             }
@@ -3253,7 +3257,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                 for (int k = 0; k < Coe.nz; ++k)
                 {
                     ez111 = Coe._nodeNum[i][j][k][2];
-                    b[ez111] = -2.0 * Coe._cex[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i - 1][j][k])
+                    b_pinned[ez111] = -2.0 * Coe._cex[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i - 1][j][k])
                         + 2.0 * Coe._cey[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j - 1][k])
                         - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jz[i][j][k] - 2.0 * sumE[ez111];
                 }
@@ -3274,25 +3278,25 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex122 = Coe._nodeNum[i][j + 1][k + 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex122]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex122]);
                     }
                     else if ((j == 0) && (k == Coe.nz)) // Case (a-2)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex120 = Coe._nodeNum[i][j + 1][k - 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex120]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex120]);
                     }
                     else if ((j == Coe.ny) && (k == 0)) // Case (a-3)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex102 = Coe._nodeNum[i][j - 1][k + 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex102]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex102]);
                     }
                     else if ((j == Coe.ny) && (k == Coe.nz)) // Case (a-4)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex100 = Coe._nodeNum[i][j - 1][k - 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex100]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex100]);
                     }
                 }
             }
@@ -3306,13 +3310,13 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex121 = Coe._nodeNum[i][j + 1][k][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex121]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex121]);
                     }
                     else if (j == Coe.ny) // Case (1-2)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex101 = Coe._nodeNum[i][j - 1][k][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex101]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex101]);
                     }
                 }
             }
@@ -3325,13 +3329,13 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex112 = Coe._nodeNum[i][j][k + 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex112]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex112]);
                     }
                     else if (k == Coe.nz) // Case (1-4)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex110 = Coe._nodeNum[i][j][k - 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex110]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex110]);
                     }
                 }
             }
@@ -3351,25 +3355,25 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey212 = Coe._nodeNum[i + 1][j][k + 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey212]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey212]);
                     }
                     else if ((k == 0) && (i == Coe.nx)) // Case (b-2)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey012 = Coe._nodeNum[i - 1][j][k + 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey012]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey012]);
                     }
                     else if ((k == Coe.nz) && (i == 0)) // Case (b-3)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey210 = Coe._nodeNum[i + 1][j][k - 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey210]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey210]);
                     }
                     else if ((i == Coe.nx) && (k == Coe.nz)) // Case (b-4)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey010 = Coe._nodeNum[i - 1][j][k - 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey010]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey010]);
                     }
                 }
             }
@@ -3383,13 +3387,13 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey112 = Coe._nodeNum[i][j][k + 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey112]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey112]);
                     }
                     else if (k == Coe.nz) // Case (2-2)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey110 = Coe._nodeNum[i][j][k - 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey110]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey110]);
                     }
                 }
             }
@@ -3402,13 +3406,13 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey211 = Coe._nodeNum[i + 1][j][k][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey211]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey211]);
                     }
                     else if (i == Coe.nx) // Case (2-4)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey011 = Coe._nodeNum[i - 1][j][k][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey011]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey011]);
                     }
                 }
             }
@@ -3429,25 +3433,25 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez221 = Coe._nodeNum[i + 1][j + 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez221]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez221]);
                     }
                     else if ((i == 0) && (j == Coe.ny)) // Case (c-2)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez201 = Coe._nodeNum[i + 1][j - 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez201]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez201]);
                     }
                     else if ((i == Coe.nx) && (j == 0)) // Case (c-3)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez021 = Coe._nodeNum[i - 1][j + 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez021]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez021]);
                     }
                     else if ((i == Coe.nx) && (j == Coe.ny)) // Case (c-4)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez001 = Coe._nodeNum[i - 1][j - 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez001]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez001]);
                     }
                 }
             }
@@ -3461,13 +3465,13 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez211 = Coe._nodeNum[i + 1][j][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez211]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez211]);
                     }
                     else if (i == Coe.nx) // Case (3-2)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez011 = Coe._nodeNum[i - 1][j][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez011]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez011]);
                     }
                 }
             }
@@ -3480,13 +3484,13 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez121 = Coe._nodeNum[i][j + 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez121]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez121]);
                     }
                     else if (j == Coe.ny) // Case (3-4)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez101 = Coe._nodeNum[i][j - 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez101]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez101]);
                     }
                 }
             }
@@ -3510,7 +3514,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         for (int i = 0; i < Nnode; ++i)
         {
-            sumE[i] += x[i];
+            sumE[i] += x_pinned[i];
         }
 
         // Update Hx
@@ -3526,7 +3530,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     ez121 = Coe._nodeNum[i][j + 1][k][2];
                     ez111 = Coe._nodeNum[i][j][k][2];
 
-                    Coe._hx[i][j][k] = Coe._chz[i][j][k] * (x[ey112] - x[ey111]) - Coe._chy[i][j][k] * (x[ez121] - x[ez111])
+                    Coe._hx[i][j][k] = Coe._chz[i][j][k] * (x_pinned[ey112] - x_pinned[ey111]) - Coe._chy[i][j][k] * (x_pinned[ez121] - x_pinned[ez111])
                         - 2.0 * Coe._sumHx[i][j][k];
                     Coe._sumHx[i][j][k] += Coe._hx[i][j][k];
                 }
@@ -3546,7 +3550,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     ex112 = Coe._nodeNum[i][j][k + 1][0];
                     ex111 = Coe._nodeNum[i][j][k][0];
 
-                    Coe._hy[i][j][k] = Coe._chx[i][j][k] * (x[ez211] - x[ez111]) - Coe._chz[i][j][k] * (x[ex112] - x[ex111])
+                    Coe._hy[i][j][k] = Coe._chx[i][j][k] * (x_pinned[ez211] - x_pinned[ez111]) - Coe._chz[i][j][k] * (x_pinned[ex112] - x_pinned[ex111])
                         - 2.0 * Coe._sumHy[i][j][k];
                     Coe._sumHy[i][j][k] += Coe._hy[i][j][k];
                 }
@@ -3566,7 +3570,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                     ey211 = Coe._nodeNum[i + 1][j][k][1];
                     ey111 = Coe._nodeNum[i][j][k][1];
 
-                    Coe._hz[i][j][k] = Coe._chy[i][j][k] * (x[ex121] - x[ex111]) - Coe._chx[i][j][k] * (x[ey211] - x[ey111])
+                    Coe._hz[i][j][k] = Coe._chy[i][j][k] * (x_pinned[ex121] - x_pinned[ex111]) - Coe._chx[i][j][k] * (x_pinned[ey211] - x_pinned[ey111])
                         - 2.0 * Coe._sumHz[i][j][k];
                     Coe._sumHz[i][j][k] += Coe._hz[i][j][k];
                 }
@@ -3583,17 +3587,17 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                 if (probeDirecIndex[0] == 1)
                 {
                     Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][0];
-                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
                 }
                 else if (probeDirecIndex[1] == 1)
                 {
                     Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][1];
-                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
                 }
                 else if (probeDirecIndex[2] == 1)
                 {
                     Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][2];
-                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
                 }
 
                 else
@@ -3618,7 +3622,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                         Pos = Coe._nodeNum[i][j][k][2];
                         for (int l = 0; l < Coe.tStep; ++l)
                         {
-                            vtg[l] += x[Pos] * lagPoly_sum[l] * (-Coe._dze[k] / (Coe._probeCell[n * 6 + 1] - Coe._probeCell[n * 6 + 0] + 1));
+                            vtg[l] += x_pinned[Pos] * lagPoly_sum[l] * (-Coe._dze[k] / (Coe._probeCell[n * 6 + 1] - Coe._probeCell[n * 6 + 0] + 1));
                             // probe[n][l] += vtg[l];
                         }
                     }
@@ -3629,7 +3633,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
                 probe[i + n * Coe.tStep] += vtg[i];
             }
             Pos = Coe._nodeNum[Coe._probeCell[n * 6 + 0] - 1][Coe._probeCell[n * 6 + 2] - 1][Coe._probeCell[n * 6 + 4] - 1][2];
-            recordEq[q + n * (Coe.qstop + 1)] = x[Pos];
+            recordEq[q + n * (Coe.qstop + 1)] = x_pinned[Pos];
         }
 
         ++q;
