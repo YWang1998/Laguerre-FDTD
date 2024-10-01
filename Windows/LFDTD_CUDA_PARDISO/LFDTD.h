@@ -63,6 +63,10 @@ public:
         /* Destroy contexts */
         if (_Solver)
         {
+
+            checkCudaErrors(cudaFreeHost(x_pinned));
+            checkCudaErrors(cudaFreeHost(b_pinned));
+
             checkCudaErrors(cusparseDestroy(cusparseHandle));
             checkCudaErrors(cublasDestroy(cublasHandle));
             if (_Solver == _CUDA_Expanded)
@@ -132,8 +136,10 @@ private:
     std::unique_ptr<int[]> ia;
 
     std::unique_ptr<double[]> b;
-    std::unique_ptr<double[]> bs;
     std::unique_ptr<double[]> x;
+
+    double* b_pinned; // PINNED Memory for fast GPU-CPU data transfer
+    double* x_pinned; // PINNED Memory for fast GPU-CPU data transfer
 
     std::unique_ptr<double[]> sumE;
     std::unique_ptr<double[]> lagPoly;
@@ -198,4 +204,5 @@ private:
     Sim_ptr sim_ptr;
 
 };
+
 
