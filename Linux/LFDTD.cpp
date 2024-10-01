@@ -1,3 +1,4 @@
+#include "global.h"
 #include "LFDTD.h"
 
 using namespace CBLAS;
@@ -8,21 +9,17 @@ Precon LFDTD::_M;
 
 LFDTD::LFDTD()
 {
-    b = std::make_unique<double[]>(Nnode);
-    bs = std::make_unique<double[]>(Nnode);
-    x = std::make_unique<double[]>(Nnode);
-
     sumE = std::make_unique<double[]>(Nnode);
     PrintQ = 0;
 
 }
 
-void LFDTD::PrintQ_set(INTEGER i)
+void LFDTD::PrintQ_set(int i)
 {
     if (i) PrintQ = 1;
 }
 
-void LFDTD::Sparse_A_Val(std::ifstream& a_file, INTEGER n, const INTEGER NNZ)
+void LFDTD::Sparse_A_Val(std::ifstream& a_file, int n, const int NNZ)
 {
 
 }
@@ -34,12 +31,12 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
     {
         printf("Constructing Sparse Matrix A ...\n");
 
-        ia_M = std::make_unique<INTEGER[]>(Nnode + 1);
-        ja_M = std::make_unique<INTEGER[]>(Nnode);
+        ia_M = std::make_unique<int[]>(Nnode + 1);
+        ja_M = std::make_unique<int[]>(Nnode);
         D = std::make_unique<double[]>(Nnode);
         I = std::make_unique<double[]>(Nnode);
 
-        for (INTEGER i = 0; i < Nnode; i++)
+        for (int i = 0; i < Nnode; i++)
         {
             I[i] = 1.0; // Pre-assign 1.0 to all keys for proposed preconditioner
             ia_M[i] = i;
@@ -49,11 +46,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         ia_M[Nnode] = Nnode;
 
         // Ex equations
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ex111 = Coe._nodeNum[i][j][k][0];
 
@@ -127,11 +124,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         // Ey equations
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ey111 = Coe._nodeNum[i][j][k][1];
 
@@ -204,11 +201,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         // Ez equations
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     if (Coe._Jz[i][j][k] == 1)
                     {
@@ -399,13 +396,13 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ex
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
 
             // Edge
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((j == 0) && (k == 0)) // Case (a-1)
                     {
@@ -463,9 +460,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     if (j == 0) // Case (1-1)
                     {
@@ -496,9 +493,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER j = 1; j < Coe.ny; j++)
+            for (int j = 1; j < Coe.ny; j++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (1-3)
                     {
@@ -532,13 +529,13 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ey
 
-        for (INTEGER j = 0; j < Coe.ny; ++j)
+        for (int j = 0; j < Coe.ny; ++j)
         {
 
             // Edge
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((i == 0) && (k == 0)) // Case (b-1)
                     {
@@ -596,9 +593,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER i = 1; i < Coe.nx; i++)
+            for (int i = 1; i < Coe.nx; i++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (2-1)
                     {
@@ -629,9 +626,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 1; k < Coe.nz; k++)
+                for (int k = 1; k < Coe.nz; k++)
                 {
                     if (i == 0) // Case (2-3)
                     {
@@ -665,12 +662,12 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ez
 
-        for (INTEGER k = 0; k < Coe.nz; ++k) {
+        for (int k = 0; k < Coe.nz; ++k) {
 
             // Edge
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx) {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny) {
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
                     if ((i == 0) && (j == 0)) // Case (c-1)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
@@ -731,8 +728,8 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx) {
-                for (INTEGER j = 1; j < Coe.ny; j++) {
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 1; j < Coe.ny; j++) {
                     if (i == 0) // Case (3-1)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
@@ -765,8 +762,8 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER i = 1; i < Coe.nx; i++) {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny) {
+            for (int i = 1; i < Coe.nx; i++) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
                     if (j == 0) // Case (3-3)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
@@ -803,11 +800,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
     {
         printf("Constructing Sparse Matrix A ...\n");
         // Ex equations
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ex111 = Coe._nodeNum[i][j][k][0];
 
@@ -866,11 +863,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         // Ey equations
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ey111 = Coe._nodeNum[i][j][k][1];
 
@@ -928,11 +925,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         // Ez equations
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     if (Coe._Jz[i][j][k] == 1)
                     {
@@ -1106,13 +1103,13 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         // Outmost ABC boundary for Ex
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
 
             // Edge
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((j == 0) && (k == 0)) // Case (a-1)
                     {
@@ -1162,9 +1159,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     if (j == 0) // Case (1-1)
                     {
@@ -1191,9 +1188,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER j = 1; j < Coe.ny; j++)
+            for (int j = 1; j < Coe.ny; j++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (1-3)
                     {
@@ -1222,13 +1219,13 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         // Outmost ABC boundary for Ey
-        for (INTEGER j = 0; j < Coe.ny; ++j)
+        for (int j = 0; j < Coe.ny; ++j)
         {
 
             // Edge
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((i == 0) && (k == 0)) // Case (b-1)
                     {
@@ -1278,9 +1275,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER i = 1; i < Coe.nx; i++)
+            for (int i = 1; i < Coe.nx; i++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (2-1)
                     {
@@ -1307,9 +1304,9 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 1; k < Coe.nz; k++)
+                for (int k = 1; k < Coe.nz; k++)
                 {
                     if (i == 0) // Case (2-3)
                     {
@@ -1338,12 +1335,12 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         // Outmost ABC boundary for Ez
-        for (INTEGER k = 0; k < Coe.nz; ++k) {
+        for (int k = 0; k < Coe.nz; ++k) {
 
             // Edge
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx) {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny) {
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
                     if ((i == 0) && (j == 0)) // Case (c-1)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
@@ -1396,8 +1393,8 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx) {
-                for (INTEGER j = 1; j < Coe.ny; j++) {
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 1; j < Coe.ny; j++) {
                     if (i == 0) // Case (3-1)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
@@ -1425,8 +1422,8 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER i = 1; i < Coe.nx; i++) {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny) {
+            for (int i = 1; i < Coe.nx; i++) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
                     if (j == 0) // Case (3-3)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
@@ -1464,7 +1461,8 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 void LFDTD::Solver_Select()
 {
 
-    INTEGER Solver_select;
+    int Solver_select;
+    int Precon_select;
 
     std::cout << "Please select the solver: [1] - PARDISO, [2]- cuSPARSE, [3] - CUDA RT, [4] - CUDA RT Expanded Kernel (Testing)" << std::endl;
     std::cin >> Solver_select;
@@ -1492,7 +1490,6 @@ void LFDTD::Solver_Select()
 
     if (_Solver)
     {
-        INTEGER Precon_select;
         std::cout << "Please select the preconditioner: [1] - None, [2] - Jacobi, [3] - Laguerre" << std::endl;
         std::cin >> Precon_select;
         switch (Precon_select)
@@ -1517,18 +1514,18 @@ void LFDTD::Solver_Select()
 
 void LFDTD::COO2CSR()
 {
-    ia = std::make_unique<INTEGER[]>(Nnode + 1);
+    ia = std::make_unique<int[]>(Nnode + 1);
     a = std::make_unique<double[]>(NNZ);
-    ja = std::make_unique<INTEGER[]>(NNZ);
+    ja = std::make_unique<int[]>(NNZ);
 
-    std::vector<std::pair<INTEGER, INTEGER>> JA_Group;
-    std::vector<INTEGER> JA_Sorted_Idx;
+    std::vector<std::pair<int, int>> JA_Group;
+    std::vector<int> JA_Sorted_Idx;
 
     std::sort(IA.begin(), IA.end(), cmp);
 
     if (_Solver)
     {
-        for (INTEGER i = 0; i < NNZ - 1; ++i)
+        for (int i = 0; i < NNZ - 1; ++i)
         {
 
             if (IA[i].second == IA[i + 1].second)
@@ -1566,12 +1563,12 @@ void LFDTD::COO2CSR()
 
         // 0-index in row column
 
-        for (INTEGER i = 0; i < Nnode; ++i)
+        for (int i = 0; i < Nnode; ++i)
         {
             ia[i + 1] += ia[i];
         }
 
-        for (INTEGER i = 0; i < NNZ; ++i)
+        for (int i = 0; i < NNZ; ++i)
         {
             ja[i] = JA[JA_Sorted_Idx[i]];
             a[i] = VAL[JA_Sorted_Idx[i]];
@@ -1587,8 +1584,8 @@ void LFDTD::COO2CSR()
         checkCudaErrors(cusparseCreateMatDescr(&descr));
 
         /* Allocate required memory */
-        checkCudaErrors(cudaMalloc((void**)&d_col, NNZ * sizeof(INTEGER)));
-        checkCudaErrors(cudaMalloc((void**)&d_row, (Nnode + 1) * sizeof(INTEGER)));
+        checkCudaErrors(cudaMalloc((void**)&d_col, NNZ * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_row, (Nnode + 1) * sizeof(int)));
         checkCudaErrors(cudaMalloc((void**)&d_val, NNZ * sizeof(double)));
         checkCudaErrors(cudaMalloc((void**)&d_x, Nnode * sizeof(double)));
         checkCudaErrors(cudaMalloc((void**)&d_r, Nnode * sizeof(double)));
@@ -1597,7 +1594,7 @@ void LFDTD::COO2CSR()
         checkCudaErrors(cudaMalloc((void**)&d_AP, Nnode * sizeof(double)));
         checkCudaErrors(cudaMalloc((void**)&d_AS, Nnode * sizeof(double)));
 
-        /* Wrap raw data INTEGERo cuSPARSE generic API objects - Dense Vector on RHS */
+        /* Wrap raw data into cuSPARSE generic API objects - Dense Vector on RHS */
         checkCudaErrors(cusparseCreateDnVec(&vecR, Nnode, d_r, CUDA_R_64F));
         checkCudaErrors(cusparseCreateDnVec(&vecP, Nnode, d_p, CUDA_R_64F));
         checkCudaErrors(cusparseCreateDnVec(&vecAP, Nnode, d_AP, CUDA_R_64F));
@@ -1605,16 +1602,16 @@ void LFDTD::COO2CSR()
 
         /* Initialize matrix data */
         checkCudaErrors(cudaMemcpy(
-            d_col, ja.get(), NNZ * sizeof(INTEGER), cudaMemcpyHostToDevice));
+            d_col, ja.get(), NNZ * sizeof(int), cudaMemcpyHostToDevice));
         checkCudaErrors(cudaMemcpy(
-            d_row, ia.get(), (Nnode + 1) * sizeof(INTEGER), cudaMemcpyHostToDevice));
+            d_row, ia.get(), (Nnode + 1) * sizeof(int), cudaMemcpyHostToDevice));
         checkCudaErrors(cudaMemcpy(
             d_val, a.get(), NNZ * sizeof(double), cudaMemcpyHostToDevice));
 
         /* Create CSR A matrix on GPU */
         checkCudaErrors(cusparseCreateCsr(
-            &matA, Nnode, Nnode, NNZ, d_row, d_col, d_val, CUSPARSE_INDEX_64I,
-            CUSPARSE_INDEX_64I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+            &matA, Nnode, Nnode, NNZ, d_row, d_col, d_val, CUSPARSE_INDEX_32I,
+            CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
 
         /* Initialize host & device variable for kernel based CUDA implementation */
 
@@ -1655,15 +1652,15 @@ void LFDTD::COO2CSR()
             printf("Solving Ax=b with Jacobi Preconditioner D\n");
 
             /* Allocate required memory */
-            checkCudaErrors(cudaMalloc((void**)&d_col_m, Nnode * sizeof(INTEGER)));
-            checkCudaErrors(cudaMalloc((void**)&d_row_m, (Nnode + 1) * sizeof(INTEGER)));
+            checkCudaErrors(cudaMalloc((void**)&d_col_m, Nnode * sizeof(int)));
+            checkCudaErrors(cudaMalloc((void**)&d_row_m, (Nnode + 1) * sizeof(int)));
             checkCudaErrors(cudaMalloc((void**)&d_val_m, Nnode * sizeof(double)));
 
             /* Initialize Pre-conditioner matrix data */
             checkCudaErrors(cudaMemcpy(
-                d_col_m, ja_M.get(), Nnode * sizeof(INTEGER), cudaMemcpyHostToDevice));
+                d_col_m, ja_M.get(), Nnode * sizeof(int), cudaMemcpyHostToDevice));
             checkCudaErrors(cudaMemcpy(
-                d_row_m, ia_M.get(), (Nnode + 1) * sizeof(INTEGER), cudaMemcpyHostToDevice));
+                d_row_m, ia_M.get(), (Nnode + 1) * sizeof(int), cudaMemcpyHostToDevice));
             checkCudaErrors(cudaMemcpy(
                 d_val_m, D.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
 
@@ -1675,8 +1672,8 @@ void LFDTD::COO2CSR()
 
             /* Create CSR Pre-conditioner M matrix on GPU */
             checkCudaErrors(cusparseCreateCsr(
-                &matM, Nnode, Nnode, Nnode, d_row_m, d_col_m, d_val_m, CUSPARSE_INDEX_64I,
-                CUSPARSE_INDEX_64I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+                &matM, Nnode, Nnode, Nnode, d_row_m, d_col_m, d_val_m, CUSPARSE_INDEX_32I,
+                CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
 
             checkCudaErrors(cusparseSpMV_bufferSize(
                 cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
@@ -1708,15 +1705,15 @@ void LFDTD::COO2CSR()
             printf("Solving Ax=b with Proposed Preconditioner I\n");
 
             /* Allocate required memory */
-            checkCudaErrors(cudaMalloc((void**)&d_col_m, Nnode * sizeof(INTEGER)));
-            checkCudaErrors(cudaMalloc((void**)&d_row_m, (Nnode + 1) * sizeof(INTEGER)));
+            checkCudaErrors(cudaMalloc((void**)&d_col_m, Nnode * sizeof(int)));
+            checkCudaErrors(cudaMalloc((void**)&d_row_m, (Nnode + 1) * sizeof(int)));
             checkCudaErrors(cudaMalloc((void**)&d_val_m, Nnode * sizeof(double)));
 
             /* Initialize Pre-conditioner matrix data */
             checkCudaErrors(cudaMemcpy(
-                d_col_m, ja_M.get(), Nnode * sizeof(INTEGER), cudaMemcpyHostToDevice));
+                d_col_m, ja_M.get(), Nnode * sizeof(int), cudaMemcpyHostToDevice));
             checkCudaErrors(cudaMemcpy(
-                d_row_m, ia_M.get(), (Nnode + 1) * sizeof(INTEGER), cudaMemcpyHostToDevice));
+                d_row_m, ia_M.get(), (Nnode + 1) * sizeof(int), cudaMemcpyHostToDevice));
             checkCudaErrors(cudaMemcpy(
                 d_val_m, I.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
 
@@ -1728,8 +1725,8 @@ void LFDTD::COO2CSR()
 
             /* Create CSR Pre-conditioner M matrix on GPU */
             checkCudaErrors(cusparseCreateCsr(
-                &matM, Nnode, Nnode, Nnode, d_row_m, d_col_m, d_val_m, CUSPARSE_INDEX_64I,
-                CUSPARSE_INDEX_64I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+                &matM, Nnode, Nnode, Nnode, d_row_m, d_col_m, d_val_m, CUSPARSE_INDEX_32I,
+                CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
 
             checkCudaErrors(cusparseSpMV_bufferSize(
                 cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
@@ -1759,7 +1756,7 @@ void LFDTD::COO2CSR()
     }
     else
     {
-        for (INTEGER i = 0; i < NNZ - 1; ++i)
+        for (int i = 0; i < NNZ - 1; ++i)
         {
 
             if (IA[i].second == IA[i + 1].second)
@@ -1798,12 +1795,12 @@ void LFDTD::COO2CSR()
         // 1-index in row column
         ia[0] = 1;
 
-        for (INTEGER i = 0; i < Nnode; ++i)
+        for (int i = 0; i < Nnode; ++i)
         {
             ia[i + 1] += ia[i];
         }
 
-        for (INTEGER i = 0; i < NNZ; ++i)
+        for (int i = 0; i < NNZ; ++i)
         {
             ja[i] = JA[JA_Sorted_Idx[i]] + 1;
             a[i] = VAL[JA_Sorted_Idx[i]];
@@ -1824,12 +1821,12 @@ void LFDTD::COO2CSR()
 void LFDTD::CSR_Expanded()
 {
     a_expanded = std::make_unique<double[]>(Nnode * 16);
-    ja_expanded = std::make_unique<INTEGER[]>(Nnode * 16);
+    ja_expanded = std::make_unique<int[]>(Nnode * 16);
 
-    INTEGER count = 0;
-    for (INTEGER i = 0; i < Nnode; ++i)
+    int count = 0;
+    for (int i = 0; i < Nnode; ++i)
     {
-        for (INTEGER j = ia[i]; j < ia[i + 1]; ++j)
+        for (int j = ia[i]; j < ia[i + 1]; ++j)
         {
             ja_expanded[i * 16 + count] = ja[j];
             a_expanded[i * 16 + count] = a[j];
@@ -1842,6 +1839,8 @@ void LFDTD::CSR_Expanded()
 
 void LFDTD::BiCGSTABL_Solver()
 {
+
+
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
     checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(d_x, x.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
@@ -1950,7 +1949,7 @@ void LFDTD::BiCGSTABL_M_Solver()
 {
 
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
-    checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
     checkCudaErrors(cublasDscal(cublasHandle, Nnode, &doublezero, d_x, 1));
     /*2: Set \tilde{r0} = r0 */
     checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_r0, 1));
@@ -2056,7 +2055,7 @@ void LFDTD::BiCGSTABL_M_Solver()
         Convergence.emplace_back(iter);
         // printf("Number of iteration to converge is %d\n",iter);
         checkCudaErrors(cudaMemcpy(
-            x.get(), d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
     }
     else
     {
@@ -2075,7 +2074,7 @@ void LFDTD::BiCGSTABL_M_Kernel_Solver()
 
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
 
-    checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
 
     checkCudaErrors(cudaMemset(d_x, 0, Nnode * sizeof(double)));
 
@@ -2216,7 +2215,7 @@ void LFDTD::BiCGSTABL_M_Kernel_Solver()
         // printf("Number of iteration to converge is %d\n",iter);
 
         checkCudaErrors(cudaMemcpy(
-            x.get(), d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
 
     }
     else
@@ -2239,7 +2238,7 @@ void LFDTD::BiCGSTABL_M_Expanded_Kernel_Solver()
 
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
 
-    checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
 
     checkCudaErrors(cudaMemset(d_x, 0, Nnode * sizeof(double)));
 
@@ -2390,7 +2389,7 @@ void LFDTD::BiCGSTABL_M_Expanded_Kernel_Solver()
         // printf("Number of iteration to converge is %d\n",iter);
 
         checkCudaErrors(cudaMemcpy(
-            x.get(), d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
 
     }
     else
@@ -2410,13 +2409,16 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
     SparseA_COO(Coe);
     COO2CSR();
 
+    b = std::make_unique<double[]>(Nnode);
+    x = std::make_unique<double[]>(Nnode);
+
     recordEq = std::make_unique<double[]>(Coe.num_probe * (Coe.qstop + 1));
     probe = std::make_unique<double[]>(Coe.num_probe * Coe.tStep);
     lagPoly = std::make_unique<double[]>(4 * Coe.tStep);
     lagPoly_sum = std::make_unique<double[]>(Coe.tStep);
     vtg = std::make_unique<double[]>(Coe.tStep);
 
-    INTEGER Pos, q(0);
+    int Pos, q(0);
     double jq(0);
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -2429,8 +2431,8 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
     sparse_matrix_t       csrA;
     /* RHS and solution vectors. */
     MKL_INT nrhs = 1;     /* Number of right hand sides. */
-    /* Internal solver memory poINTEGERer pt, */
-    /* 32-bit: INTEGER pt[64]; 64-bit: INTEGER pt[64] */
+    /* Internal solver memory pointer pt, */
+    /* 32-bit: int pt[64]; 64-bit: int pt[64] */
     /* or void *pt[64] should be OK on both architectures */
     void* pt[64];
     /* Pardiso control parameters. */
@@ -2442,7 +2444,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
     /* -------------------------------------------------------------------- */
     /* .. Setup Pardiso control parameters. */
     /* -------------------------------------------------------------------- */
-    for (INTEGER i = 0; i < 64; i++)
+    for (int i = 0; i < 64; i++)
     {
         iparm[i] = 0;
     }
@@ -2450,7 +2452,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
     iparm[1] = 2;         /* Fill-in reordering from METIS */
     iparm[3] = 0;         /* No iterative-direct algorithm */
     iparm[4] = 0;         /* No user fill-in reducing permutation */
-    iparm[5] = 0;         /* Write solution INTEGERo x */
+    iparm[5] = 0;         /* Write solution into x */
     iparm[6] = 0;         /* Not in use */
     iparm[7] = 2;         /* Max numbers of iterative refinement stCoe._eps */
     iparm[8] = 0;         /* Not in use */
@@ -2467,13 +2469,13 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
     iparm[19] = 0;        /* Output: Numbers of CG Iterations */
     maxfct = 1;           /* Maximum number of numerical factorizations. */
     mnum = 1;         /* Which factorization to use. */
-    msglvl = 0;           /* PrINTEGER statistical information  */
+    msglvl = 0;           /* Print statistical information  */
     error = 0;            /* Initialize error flag */
     /* -------------------------------------------------------------------- */
-    /* .. Initialize the INTEGERernal solver memory poINTEGERer. This is only */
+    /* .. Initialize the internal solver memory pointer. This is only */
     /* necessary for the FIRST call of the PARDISO solver. */
     /* -------------------------------------------------------------------- */
-    for (INTEGER i = 0; i < 64; i++)
+    for (int i = 0; i < 64; i++)
     {
         pt[i] = 0;
     }
@@ -2520,7 +2522,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
         // Calculate Laguerre Polynomial
         if (q == 0)
         {
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[2 * Coe.tStep + i] = 1.0;
                 lagPoly[3 * Coe.tStep + i] = -Coe.s * (i + 1) * Coe.dt / 2;
@@ -2528,7 +2530,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
         }
         else if (q == 1)
         {
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
                 lagPoly[2 * Coe.tStep + i] = 1.0 - Coe.s * (i + 1) * Coe.dt;
@@ -2537,18 +2539,18 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
         else
         {
 
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[0 * Coe.tStep + i] = lagPoly[1 * Coe.tStep + i];
                 lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
             }
 
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[2 * Coe.tStep + i] = (1.0 / q) * ((2.0 * q - 1.0 - Coe.s * (i + 1) * Coe.dt) * lagPoly[1 * Coe.tStep + i] - (q - 1) * lagPoly[0 * Coe.tStep + i]);
             }
 
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 if (lagPoly[2 * Coe.tStep + i] > 1e100) // Make sure that Laguerre polynomial does not go to infinity
                 {
@@ -2561,7 +2563,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         }
 
-        for (INTEGER i = 0; i < Coe.tStep; ++i)
+        for (int i = 0; i < Coe.tStep; ++i)
         {
             lagPoly_sum[i] = lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i]);
         }
@@ -2569,7 +2571,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
         // Compute Laguerre Coefficients for the source
         jq = 0;
 
-        for (INTEGER i = 0; i < Coe.tStep; ++i)
+        for (int i = 0; i < Coe.tStep; ++i)
         {
             jq += Coe._waveform[i] * (lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i])) * Coe.s * Coe.dt;
         }
@@ -2579,11 +2581,11 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         if (jDirecIndex[2] == 1)
         {
-            for (INTEGER i = (Coe._jCellIndex[0] - 1); i < Coe._jCellIndex[1]; i++)
+            for (int i = (Coe._jCellIndex[0] - 1); i < Coe._jCellIndex[1]; i++)
             {
-                for (INTEGER j = (Coe._jCellIndex[2] - 1); j < Coe._jCellIndex[3]; j++)
+                for (int j = (Coe._jCellIndex[2] - 1); j < Coe._jCellIndex[3]; j++)
                 {
-                    for (INTEGER k = (Coe._jCellIndex[4] - 1); k < Coe._jCellIndex[5]; k++)
+                    for (int k = (Coe._jCellIndex[4] - 1); k < Coe._jCellIndex[5]; k++)
                     {
                         Coe._Jz[i][j][k] = jq / Coe._JCount;
                     }
@@ -2594,16 +2596,16 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Build b vector
 
-        std::fill_n(b.get(), Nnode, 0.0); // Clear b vector
+        // std::fill_n(b.get(), Nnode, 0.0); // Clear b vector     
 
         // Ex equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ex111 = Coe._nodeNum[i][j][k][0];
                     b[ex111] = -2.0 * Coe._cey[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i][j - 1][k]) + 2 * Coe._cez[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i][j][k - 1])
@@ -2615,11 +2617,11 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
         // Ey equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
 
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ey111 = Coe._nodeNum[i][j][k][1];
                     b[ey111] = -2.0 * Coe._cez[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j][k - 1]) + 2 * Coe._cex[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i - 1][j][k])
@@ -2631,11 +2633,11 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
         // Ez equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
 
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ez111 = Coe._nodeNum[i][j][k][2];
                     b[ez111] = -2.0 * Coe._cex[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i - 1][j][k])
@@ -2647,13 +2649,13 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ex
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
 
             // Edge
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((j == 0) && (k == 0)) // Case (a-1)
                     {
@@ -2683,9 +2685,9 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     if (j == 0) // Case (1-1)
                     {
@@ -2702,9 +2704,9 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER j = 1; j < Coe.ny; j++)
+            for (int j = 1; j < Coe.ny; j++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (1-3)
                     {
@@ -2724,13 +2726,13 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ey
 
-        for (INTEGER j = 0; j < Coe.ny; ++j)
+        for (int j = 0; j < Coe.ny; ++j)
         {
 
             // Edge
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((i == 0) && (k == 0)) // Case (b-1)
                     {
@@ -2760,9 +2762,9 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER i = 1; i < Coe.nx; i++)
+            for (int i = 1; i < Coe.nx; i++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (2-1)
                     {
@@ -2779,9 +2781,9 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 1; k < Coe.nz; k++)
+                for (int k = 1; k < Coe.nz; k++)
                 {
                     if (i == 0) // Case (2-3)
                     {
@@ -2801,14 +2803,14 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ez
 
-        for (INTEGER k = 0; k < Coe.nz; ++k)
+        for (int k = 0; k < Coe.nz; ++k)
         {
 
             // Edge
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
                 {
                     if ((i == 0) && (j == 0)) // Case (c-1)
                     {
@@ -2838,9 +2840,9 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
             }
 
             // Face
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER j = 1; j < Coe.ny; j++)
+                for (int j = 1; j < Coe.ny; j++)
                 {
                     if (i == 0) // Case (3-1)
                     {
@@ -2857,9 +2859,9 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
                 }
             }
 
-            for (INTEGER i = 1; i < Coe.nx; i++)
+            for (int i = 1; i < Coe.nx; i++)
             {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
                 {
                     if (j == 0) // Case (3-3)
                     {
@@ -2894,7 +2896,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
         mkl_sparse_d_mv(transA, 1.0, csrA, descrA, x, 0.0, bs);
         res = 0.0;
         res0 = 0.0;
-        for (INTEGER j = 1; j <= Nnode; j++)
+        for (int j = 1; j <= Nnode; j++)
         {
             res += (bs[j - 1] - b[j - 1]) * (bs[j - 1] - b[j - 1]);
             res0 += b[j - 1] * b[j - 1];
@@ -2911,18 +2913,18 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Update sumE
 
-        for (INTEGER i = 0; i < Nnode; ++i)
+        for (int i = 0; i < Nnode; ++i)
         {
             sumE[i] += x[i];
         }
 
         // Update Hx
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ey112 = Coe._nodeNum[i][j][k + 1][1];
                     ey111 = Coe._nodeNum[i][j][k][1];
@@ -2938,11 +2940,11 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Update Hy
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ez211 = Coe._nodeNum[i + 1][j][k][2];
                     ez111 = Coe._nodeNum[i][j][k][2];
@@ -2958,11 +2960,11 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
         // Update Hz
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ex121 = Coe._nodeNum[i][j + 1][k][0];
                     ex111 = Coe._nodeNum[i][j][k][0];
@@ -2976,12 +2978,12 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
             }
         }
 
-        // PrINTEGER the basis coefficient for the port with the lowest x and y index
+        // Print the basis coefficient for the port with the lowest x and y index
 
         if (PrintQ == 1)
         {
             printf("q = %5d:", q);
-            for (INTEGER i = 0; i < Coe.num_probe; ++i)
+            for (int i = 0; i < Coe.num_probe; ++i)
             {
                 if (probeDirecIndex[0] == 1)
                 {
@@ -3001,25 +3003,25 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
                 else
                 {
-                    printf("Probe prINTEGERing error\n");
+                    printf("Probe printing error\n");
                     exit(0);
                 }
             }
             printf("\n");
         }
 
-        for (INTEGER n = 0; n < Coe.num_probe; ++n)
+        for (int n = 0; n < Coe.num_probe; ++n)
         {
             std::fill_n(vtg.get(), Coe.tStep, 0.0);
 
-            for (INTEGER i = Coe._probeCell[n * 6 + 0] - 1; i < Coe._probeCell[n * 6 + 1]; ++i)
+            for (int i = Coe._probeCell[n * 6 + 0] - 1; i < Coe._probeCell[n * 6 + 1]; ++i)
             {
-                for (INTEGER j = Coe._probeCell[n * 6 + 2] - 1; j < Coe._probeCell[n * 6 + 3]; ++j)
+                for (int j = Coe._probeCell[n * 6 + 2] - 1; j < Coe._probeCell[n * 6 + 3]; ++j)
                 {
-                    for (INTEGER k = Coe._probeCell[n * 6 + 4] - 1; k < Coe._probeCell[n * 6 + 5]; ++k)
+                    for (int k = Coe._probeCell[n * 6 + 4] - 1; k < Coe._probeCell[n * 6 + 5]; ++k)
                     {
                         Pos = Coe._nodeNum[i][j][k][2];
-                        for (INTEGER l = 0; l < Coe.tStep; ++l)
+                        for (int l = 0; l < Coe.tStep; ++l)
                         {
                             vtg[l] += x[Pos] * lagPoly_sum[l] * (-Coe._dze[k] / (Coe._probeCell[n * 6 + 1] - Coe._probeCell[n * 6 + 0] + 1));
                             // probe[n][l] += vtg[l];
@@ -3027,7 +3029,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
                     }
                 }
             }
-            for (INTEGER i = 0; i < Coe.tStep; i++)
+            for (int i = 0; i < Coe.tStep; i++)
             {
                 probe[i + n * Coe.tStep] += vtg[i];
             }
@@ -3045,7 +3047,7 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
     /* -------------------------------------------------------------------- */
     /* .. Termination and release of memory. */
     /* -------------------------------------------------------------------- */
-    phase = -1;           /* Release INTEGERernal memory. */
+    phase = -1;           /* Release internal memory. */
     PARDISO(pt, &maxfct, &mnum, &mtype, &phase, &Nnode, &ddum, ia.get(), ja.get(), &idum, &nrhs, iparm, &msglvl, &ddum, &ddum, &error);
 
     std::fill_n(sumE.get(), Nnode, 0.0);
@@ -3064,6 +3066,9 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
     lagPoly = std::make_unique<double[]>(4 * Coe.tStep);
     lagPoly_sum = std::make_unique<double[]>(Coe.tStep);
     vtg = std::make_unique<double[]>(Coe.tStep);
+
+    checkCudaErrors(cudaMallocHost((void**)&b_pinned, Nnode * sizeof(double)));
+    checkCudaErrors(cudaMallocHost((void**)&x_pinned, Nnode * sizeof(double)));
 
     /* This will pick the best possible CUDA capable device */
     cudaDeviceProp deviceProp;
@@ -3089,10 +3094,10 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         deviceProp.regsPerBlock, deviceProp.regsPerMultiprocessor);
     printf("> GPU device has Maximum %d threads per block, Maximum %d threads per multiprocessor\n",
         deviceProp.maxThreadsPerBlock, deviceProp.maxThreadsPerMultiProcessor);
-    printf("> GPU device has %zu Byte Shared MEM per block,%zu Shared MEM per SM\n\n",
+    printf("> GPU device has %d Byte Shared MEM per block,%d Shared MEM per SM\n\n",
         deviceProp.sharedMemPerBlock, deviceProp.sharedMemPerMultiprocessor);
 
-    INTEGER Pos, q(0);
+    int Pos, q(0);
     double jq(0);
 
     if (_M == None)
@@ -3117,11 +3122,11 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
             CSR_Expanded(); // Only for the expanded spMV solver
             checkCudaErrors(cudaMalloc((void**)&spMV_buffer, 16 * Nnode * sizeof(double)));
             checkCudaErrors(cudaMalloc((void**)&d_a_expanded, 16 * Nnode * sizeof(double)));
-            checkCudaErrors(cudaMalloc((void**)&d_ja_expanded, 16 * Nnode * sizeof(INTEGER)));
+            checkCudaErrors(cudaMalloc((void**)&d_ja_expanded, 16 * Nnode * sizeof(int)));
             checkCudaErrors(cudaMemcpy(d_a_expanded, a_expanded.get(), 16 * Nnode * sizeof(double), cudaMemcpyHostToDevice));
-            checkCudaErrors(cudaMemcpy(d_ja_expanded, ja_expanded.get(), 16 * Nnode * sizeof(INTEGER), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(d_ja_expanded, ja_expanded.get(), 16 * Nnode * sizeof(int), cudaMemcpyHostToDevice));
         }
- 
+
     }
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -3133,7 +3138,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         // Calculate Laguerre Polynomial
         if (q == 0)
         {
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[2 * Coe.tStep + i] = 1.0;
                 lagPoly[3 * Coe.tStep + i] = -Coe.s * (i + 1) * Coe.dt / 2;
@@ -3141,7 +3146,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         }
         else if (q == 1)
         {
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
                 lagPoly[2 * Coe.tStep + i] = 1.0 - Coe.s * (i + 1) * Coe.dt;
@@ -3150,18 +3155,18 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         else
         {
 
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[0 * Coe.tStep + i] = lagPoly[1 * Coe.tStep + i];
                 lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
             }
 
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 lagPoly[2 * Coe.tStep + i] = (1.0 / q) * ((2.0 * q - 1.0 - Coe.s * (i + 1) * Coe.dt) * lagPoly[1 * Coe.tStep + i] - (q - 1) * lagPoly[0 * Coe.tStep + i]);
             }
 
-            for (INTEGER i = 0; i < Coe.tStep; ++i)
+            for (int i = 0; i < Coe.tStep; ++i)
             {
                 if (lagPoly[2 * Coe.tStep + i] > 1e100) // Make sure that Laguerre polynomial does not go to infinity
                 {
@@ -3174,7 +3179,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         }
 
-        for (INTEGER i = 0; i < Coe.tStep; ++i)
+        for (int i = 0; i < Coe.tStep; ++i)
         {
             lagPoly_sum[i] = lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i]);
         }
@@ -3182,7 +3187,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         // Compute Laguerre Coefficients for the source
         jq = 0;
 
-        for (INTEGER i = 0; i < Coe.tStep; ++i)
+        for (int i = 0; i < Coe.tStep; ++i)
         {
             jq += Coe._waveform[i] * (lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i])) * Coe.s * Coe.dt;
         }
@@ -3192,11 +3197,11 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         if (jDirecIndex[2] == 1)
         {
-            for (INTEGER i = (Coe._jCellIndex[0] - 1); i < Coe._jCellIndex[1]; i++)
+            for (int i = (Coe._jCellIndex[0] - 1); i < Coe._jCellIndex[1]; i++)
             {
-                for (INTEGER j = (Coe._jCellIndex[2] - 1); j < Coe._jCellIndex[3]; j++)
+                for (int j = (Coe._jCellIndex[2] - 1); j < Coe._jCellIndex[3]; j++)
                 {
-                    for (INTEGER k = (Coe._jCellIndex[4] - 1); k < Coe._jCellIndex[5]; k++)
+                    for (int k = (Coe._jCellIndex[4] - 1); k < Coe._jCellIndex[5]; k++)
                     {
                         Coe._Jz[i][j][k] = jq / Coe._JCount;
                     }
@@ -3207,20 +3212,20 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Build b vector
 
-        std::fill_n(b.get(), Nnode, 0.0); // Clear b vector   
-        std::fill_n(x.get(), Nnode, 0.0); // Clear x vector  
+        // std::fill_n(b_pinned, Nnode, 0.0); // Clear b vector   
+        // std::fill_n(x_pinned, Nnode, 0.0); // Clear x vector  
 
         // Ex equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ex111 = Coe._nodeNum[i][j][k][0];
-                    b[ex111] = -2.0 * Coe._cey[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i][j - 1][k]) + 2 * Coe._cez[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i][j][k - 1])
+                    b_pinned[ex111] = -2.0 * Coe._cey[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i][j - 1][k]) + 2 * Coe._cez[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i][j][k - 1])
                         - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jx[i][j][k] - 2 * sumE[ex111];
                 }
             }
@@ -3229,14 +3234,14 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         // Ey equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
 
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     ey111 = Coe._nodeNum[i][j][k][1];
-                    b[ey111] = -2.0 * Coe._cez[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j][k - 1]) + 2 * Coe._cex[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i - 1][j][k])
+                    b_pinned[ey111] = -2.0 * Coe._cez[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j][k - 1]) + 2 * Coe._cex[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i - 1][j][k])
                         - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jy[i][j][k] - 2 * sumE[ey111];
                 }
             }
@@ -3245,14 +3250,14 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
         // Ez equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
 
-        for (INTEGER i = 1; i < Coe.nx; ++i)
+        for (int i = 1; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 1; j < Coe.ny; ++j)
+            for (int j = 1; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ez111 = Coe._nodeNum[i][j][k][2];
-                    b[ez111] = -2.0 * Coe._cex[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i - 1][j][k])
+                    b_pinned[ez111] = -2.0 * Coe._cex[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i - 1][j][k])
                         + 2.0 * Coe._cey[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j - 1][k])
                         - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jz[i][j][k] - 2.0 * sumE[ez111];
                 }
@@ -3261,76 +3266,76 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ex
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
 
             // Edge
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((j == 0) && (k == 0)) // Case (a-1)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex122 = Coe._nodeNum[i][j + 1][k + 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex122]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex122]);
                     }
                     else if ((j == 0) && (k == Coe.nz)) // Case (a-2)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex120 = Coe._nodeNum[i][j + 1][k - 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex120]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex120]);
                     }
                     else if ((j == Coe.ny) && (k == 0)) // Case (a-3)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex102 = Coe._nodeNum[i][j - 1][k + 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex102]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex102]);
                     }
                     else if ((j == Coe.ny) && (k == Coe.nz)) // Case (a-4)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex100 = Coe._nodeNum[i][j - 1][k - 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex100]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex100]);
                     }
                 }
             }
 
             // Face
-            for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
             {
-                for (INTEGER k = 1; k < Coe.nz; ++k)
+                for (int k = 1; k < Coe.nz; ++k)
                 {
                     if (j == 0) // Case (1-1)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex121 = Coe._nodeNum[i][j + 1][k][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex121]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex121]);
                     }
                     else if (j == Coe.ny) // Case (1-2)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex101 = Coe._nodeNum[i][j - 1][k][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex101]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex101]);
                     }
                 }
             }
 
-            for (INTEGER j = 1; j < Coe.ny; j++)
+            for (int j = 1; j < Coe.ny; j++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (1-3)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex112 = Coe._nodeNum[i][j][k + 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex112]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex112]);
                     }
                     else if (k == Coe.nz) // Case (1-4)
                     {
                         ex111 = Coe._nodeNum[i][j][k][0];
                         ex110 = Coe._nodeNum[i][j][k - 1][0];
-                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex110]);
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex110]);
                     }
                 }
             }
@@ -3338,76 +3343,76 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ey
 
-        for (INTEGER j = 0; j < Coe.ny; ++j)
+        for (int j = 0; j < Coe.ny; ++j)
         {
 
             // Edge
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if ((i == 0) && (k == 0)) // Case (b-1)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey212 = Coe._nodeNum[i + 1][j][k + 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey212]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey212]);
                     }
                     else if ((k == 0) && (i == Coe.nx)) // Case (b-2)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey012 = Coe._nodeNum[i - 1][j][k + 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey012]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey012]);
                     }
                     else if ((k == Coe.nz) && (i == 0)) // Case (b-3)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey210 = Coe._nodeNum[i + 1][j][k - 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey210]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey210]);
                     }
                     else if ((i == Coe.nx) && (k == Coe.nz)) // Case (b-4)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey010 = Coe._nodeNum[i - 1][j][k - 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey010]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey010]);
                     }
                 }
             }
 
             // Face
-            for (INTEGER i = 1; i < Coe.nx; i++)
+            for (int i = 1; i < Coe.nx; i++)
             {
-                for (INTEGER k = 0; k < Coe.nz + 1; k += Coe.nz)
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
                 {
                     if (k == 0) // Case (2-1)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey112 = Coe._nodeNum[i][j][k + 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey112]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey112]);
                     }
                     else if (k == Coe.nz) // Case (2-2)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey110 = Coe._nodeNum[i][j][k - 1][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey110]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey110]);
                     }
                 }
             }
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER k = 1; k < Coe.nz; k++)
+                for (int k = 1; k < Coe.nz; k++)
                 {
                     if (i == 0) // Case (2-3)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey211 = Coe._nodeNum[i + 1][j][k][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey211]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey211]);
                     }
                     else if (i == Coe.nx) // Case (2-4)
                     {
                         ey111 = Coe._nodeNum[i][j][k][1];
                         ey011 = Coe._nodeNum[i - 1][j][k][1];
-                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey011]);
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey011]);
                     }
                 }
             }
@@ -3415,77 +3420,77 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Outmost ABC boundary for Ez
 
-        for (INTEGER k = 0; k < Coe.nz; ++k)
+        for (int k = 0; k < Coe.nz; ++k)
         {
 
             // Edge
 
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
                 {
                     if ((i == 0) && (j == 0)) // Case (c-1)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez221 = Coe._nodeNum[i + 1][j + 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez221]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez221]);
                     }
                     else if ((i == 0) && (j == Coe.ny)) // Case (c-2)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez201 = Coe._nodeNum[i + 1][j - 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez201]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez201]);
                     }
                     else if ((i == Coe.nx) && (j == 0)) // Case (c-3)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez021 = Coe._nodeNum[i - 1][j + 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez021]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez021]);
                     }
                     else if ((i == Coe.nx) && (j == Coe.ny)) // Case (c-4)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez001 = Coe._nodeNum[i - 1][j - 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez001]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez001]);
                     }
                 }
             }
 
             // Face
-            for (INTEGER i = 0; i < Coe.nx + 1; i += Coe.nx)
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
             {
-                for (INTEGER j = 1; j < Coe.ny; j++)
+                for (int j = 1; j < Coe.ny; j++)
                 {
                     if (i == 0) // Case (3-1)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez211 = Coe._nodeNum[i + 1][j][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez211]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez211]);
                     }
                     else if (i == Coe.nx) // Case (3-2)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez011 = Coe._nodeNum[i - 1][j][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez011]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez011]);
                     }
                 }
             }
 
-            for (INTEGER i = 1; i < Coe.nx; i++)
+            for (int i = 1; i < Coe.nx; i++)
             {
-                for (INTEGER j = 0; j < Coe.ny + 1; j += Coe.ny)
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
                 {
                     if (j == 0) // Case (3-3)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez121 = Coe._nodeNum[i][j + 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez121]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez121]);
                     }
                     else if (j == Coe.ny) // Case (3-4)
                     {
                         ez111 = Coe._nodeNum[i][j][k][2];
                         ez101 = Coe._nodeNum[i][j - 1][k][2];
-                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez101]);
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez101]);
                     }
                 }
             }
@@ -3507,25 +3512,25 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Update sumE
 
-        for (INTEGER i = 0; i < Nnode; ++i)
+        for (int i = 0; i < Nnode; ++i)
         {
-            sumE[i] += x[i];
+            sumE[i] += x_pinned[i];
         }
 
         // Update Hx
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ey112 = Coe._nodeNum[i][j][k + 1][1];
                     ey111 = Coe._nodeNum[i][j][k][1];
                     ez121 = Coe._nodeNum[i][j + 1][k][2];
                     ez111 = Coe._nodeNum[i][j][k][2];
 
-                    Coe._hx[i][j][k] = Coe._chz[i][j][k] * (x[ey112] - x[ey111]) - Coe._chy[i][j][k] * (x[ez121] - x[ez111])
+                    Coe._hx[i][j][k] = Coe._chz[i][j][k] * (x_pinned[ey112] - x_pinned[ey111]) - Coe._chy[i][j][k] * (x_pinned[ez121] - x_pinned[ez111])
                         - 2.0 * Coe._sumHx[i][j][k];
                     Coe._sumHx[i][j][k] += Coe._hx[i][j][k];
                 }
@@ -3534,18 +3539,18 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Update Hy
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ez211 = Coe._nodeNum[i + 1][j][k][2];
                     ez111 = Coe._nodeNum[i][j][k][2];
                     ex112 = Coe._nodeNum[i][j][k + 1][0];
                     ex111 = Coe._nodeNum[i][j][k][0];
 
-                    Coe._hy[i][j][k] = Coe._chx[i][j][k] * (x[ez211] - x[ez111]) - Coe._chz[i][j][k] * (x[ex112] - x[ex111])
+                    Coe._hy[i][j][k] = Coe._chx[i][j][k] * (x_pinned[ez211] - x_pinned[ez111]) - Coe._chz[i][j][k] * (x_pinned[ex112] - x_pinned[ex111])
                         - 2.0 * Coe._sumHy[i][j][k];
                     Coe._sumHy[i][j][k] += Coe._hy[i][j][k];
                 }
@@ -3554,81 +3559,81 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
         // Update Hz
 
-        for (INTEGER i = 0; i < Coe.nx; ++i)
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            for (INTEGER j = 0; j < Coe.ny; ++j)
+            for (int j = 0; j < Coe.ny; ++j)
             {
-                for (INTEGER k = 0; k < Coe.nz; ++k)
+                for (int k = 0; k < Coe.nz; ++k)
                 {
                     ex121 = Coe._nodeNum[i][j + 1][k][0];
                     ex111 = Coe._nodeNum[i][j][k][0];
                     ey211 = Coe._nodeNum[i + 1][j][k][1];
                     ey111 = Coe._nodeNum[i][j][k][1];
 
-                    Coe._hz[i][j][k] = Coe._chy[i][j][k] * (x[ex121] - x[ex111]) - Coe._chx[i][j][k] * (x[ey211] - x[ey111])
+                    Coe._hz[i][j][k] = Coe._chy[i][j][k] * (x_pinned[ex121] - x_pinned[ex111]) - Coe._chx[i][j][k] * (x_pinned[ey211] - x_pinned[ey111])
                         - 2.0 * Coe._sumHz[i][j][k];
                     Coe._sumHz[i][j][k] += Coe._hz[i][j][k];
                 }
             }
         }
 
-        // PrINTEGER the basis coefficient for the port with the lowest x and y index
+        // Print the basis coefficient for the port with the lowest x and y index
 
         if (PrintQ == 1)
         {
             printf("q = %5d:", q);
-            for (INTEGER i = 0; i < Coe.num_probe; ++i)
+            for (int i = 0; i < Coe.num_probe; ++i)
             {
                 if (probeDirecIndex[0] == 1)
                 {
                     Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][0];
-                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
                 }
                 else if (probeDirecIndex[1] == 1)
                 {
                     Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][1];
-                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
                 }
                 else if (probeDirecIndex[2] == 1)
                 {
                     Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][2];
-                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
                 }
 
                 else
                 {
-                    printf("Probe prINTEGERing error\n");
+                    printf("Probe printing error\n");
                     exit(0);
                 }
             }
             printf("\n");
         }
 
-        for (INTEGER n = 0; n < Coe.num_probe; ++n)
+        for (int n = 0; n < Coe.num_probe; ++n)
         {
             std::fill_n(vtg.get(), Coe.tStep, 0.0);
 
-            for (INTEGER i = Coe._probeCell[n * 6 + 0] - 1; i < Coe._probeCell[n * 6 + 1]; ++i)
+            for (int i = Coe._probeCell[n * 6 + 0] - 1; i < Coe._probeCell[n * 6 + 1]; ++i)
             {
-                for (INTEGER j = Coe._probeCell[n * 6 + 2] - 1; j < Coe._probeCell[n * 6 + 3]; ++j)
+                for (int j = Coe._probeCell[n * 6 + 2] - 1; j < Coe._probeCell[n * 6 + 3]; ++j)
                 {
-                    for (INTEGER k = Coe._probeCell[n * 6 + 4] - 1; k < Coe._probeCell[n * 6 + 5]; ++k)
+                    for (int k = Coe._probeCell[n * 6 + 4] - 1; k < Coe._probeCell[n * 6 + 5]; ++k)
                     {
                         Pos = Coe._nodeNum[i][j][k][2];
-                        for (INTEGER l = 0; l < Coe.tStep; ++l)
+                        for (int l = 0; l < Coe.tStep; ++l)
                         {
-                            vtg[l] += x[Pos] * lagPoly_sum[l] * (-Coe._dze[k] / (Coe._probeCell[n * 6 + 1] - Coe._probeCell[n * 6 + 0] + 1));
+                            vtg[l] += x_pinned[Pos] * lagPoly_sum[l] * (-Coe._dze[k] / (Coe._probeCell[n * 6 + 1] - Coe._probeCell[n * 6 + 0] + 1));
                             // probe[n][l] += vtg[l];
                         }
                     }
                 }
             }
-            for (INTEGER i = 0; i < Coe.tStep; i++)
+            for (int i = 0; i < Coe.tStep; i++)
             {
                 probe[i + n * Coe.tStep] += vtg[i];
             }
             Pos = Coe._nodeNum[Coe._probeCell[n * 6 + 0] - 1][Coe._probeCell[n * 6 + 2] - 1][Coe._probeCell[n * 6 + 4] - 1][2];
-            recordEq[q + n * (Coe.qstop + 1)] = x[Pos];
+            recordEq[q + n * (Coe.qstop + 1)] = x_pinned[Pos];
         }
 
         ++q;
@@ -3638,7 +3643,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
     auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
     printf("Simulation ends with total %d orders solved!\n", Coe.qstop);
-    printf("Elapsed time: %ld  milliseconds.\n", elapsed_time);
+    printf("Elapsed time: %lld  milliseconds.\n", elapsed_time);
 
     std::fill_n(sumE.get(), Nnode, 0.0);
     std::fill_n(lagPoly_sum.get(), Coe.tStep, 0.0);
@@ -3649,7 +3654,7 @@ void LFDTD::Convergence_Profiler(const std::string& InputFile)
     std::ofstream myfile(InputFile);
     if (myfile.is_open())
     {
-        for (INTEGER i = 0; i < Convergence.size(); ++i)
+        for (int i = 0; i < Convergence.size(); ++i)
         {
             myfile << Convergence[i] << std::endl;
         }
@@ -3663,9 +3668,9 @@ void LFDTD::result_write(const std::string& InputFile, const LFDTD_Coe& Coe)
     std::ofstream myfile(InputFile);
     if (myfile.is_open())
     {
-        for (INTEGER count = 0; count < Coe.tStep; count++)
+        for (int count = 0; count < Coe.tStep; count++)
         {
-            for (INTEGER i = 0; i < Coe.num_probe; i++)
+            for (int i = 0; i < Coe.num_probe; i++)
             {
                 myfile << probe[count + i * Coe.tStep] << " ";
             }
@@ -3681,9 +3686,9 @@ void LFDTD::Eq_result_write(const std::string& InputFile, const LFDTD_Coe& Coe)
     std::ofstream myfile(InputFile);
     if (myfile.is_open())
     {
-        for (INTEGER count = 0; count <= Coe.qstop; count++)
+        for (int count = 0; count <= Coe.qstop; count++)
         {
-            for (INTEGER i = 0; i < Coe.num_probe; i++)
+            for (int i = 0; i < Coe.num_probe; i++)
             {
                 myfile << recordEq[count + i * (Coe.qstop + 1)] << " ";
             }
@@ -3698,9 +3703,9 @@ void LFDTD::result_write_app(const std::string& InputFile, const LFDTD_Coe& Coe)
     std::ofstream myfile(InputFile, std::ios::app);
     if (myfile.is_open())
     {
-        for (INTEGER count = 0; count < Coe.tStep; count++)
+        for (int count = 0; count < Coe.tStep; count++)
         {
-            for (INTEGER i = 0; i < Coe.num_probe; i++)
+            for (int i = 0; i < Coe.num_probe; i++)
             {
                 myfile << probe[count + i * Coe.tStep] << " ";
             }
@@ -3717,9 +3722,9 @@ void LFDTD::Eq_result_write_app(const std::string& InputFile, const LFDTD_Coe& C
     std::ofstream myfile(InputFile, std::ios::app);
     if (myfile.is_open())
     {
-        for (INTEGER count = 0; count <= Coe.qstop; count++)
+        for (int count = 0; count <= Coe.qstop; count++)
         {
-            for (INTEGER i = 0; i < Coe.num_probe; i++)
+            for (int i = 0; i < Coe.num_probe; i++)
             {
                 myfile << recordEq[count + i * (Coe.qstop + 1)] << " ";
             }
