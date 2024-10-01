@@ -1,1644 +1,3735 @@
-#include "LFDTD_Coe.h"
+#include "global.h"
+#include "LFDTD.h"
 
-glm::vec3 Grid::cameraPos = glm::vec3(0.0f, 0.0f, 10.0f);
-glm::vec3 Grid::cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
-glm::vec3 Grid::cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
-float Grid::cameraSpeed;
+using namespace CBLAS;
 
-float Grid::deltaTime = 0.0f;	// time between current frame and last frame
-double Grid::xpos_ini{ Grid::SCR_WIDTH / 2 }, Grid::ypos_ini{ Grid::SCR_HEIGHT / 2 };
-double Grid::xpos, Grid::ypos;
+Solver LFDTD::_Solver;
 
+Precon LFDTD::_M;
 
-void Grid::Mesh_Grid(const std::string& InputFile)
+LFDTD::LFDTD()
 {
-    nx = 22;
-    ny = 140;
-    nz = 13;
-
-    _eps.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _mu.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-
-    _sigmax.resize(boost::extents[nx][ny][nz]);
-    _sigmay.resize(boost::extents[nx][ny][nz]);
-    _sigmaz.resize(boost::extents[nx][ny][nz]);
-
-    _dxh = std::make_unique<double[]>(nx + 1);
-    _dyh = std::make_unique<double[]>(ny + 1);
-    _dzh = std::make_unique<double[]>(nz + 1);
-    _dxe = std::make_unique<double[]>(nx + 1);
-    _dye = std::make_unique<double[]>(ny + 1);
-    _dze = std::make_unique<double[]>(nz + 1);
-
-    MatrixImport_1D(InputFile + "/dxh.txt", nx + 1, _dxh.get());
-    MatrixImport_1D(InputFile + "/dyh.txt", ny + 1, _dyh.get());
-    MatrixImport_1D(InputFile + "/dzh.txt", nz + 1, _dzh.get());
-
-    MatrixImport_1D(InputFile + "/dxe.txt", nx + 1, _dxe.get());
-    MatrixImport_1D(InputFile + "/dye.txt", ny + 1, _dye.get());
-    MatrixImport_1D(InputFile + "/dze.txt", nz + 1, _dze.get());
-
-    MatrixImport_3D(InputFile + "/sigmax.txt", nx, ny, nz, _sigmax);
-    MatrixImport_3D(InputFile + "/sigmay.txt", nx, ny, nz, _sigmay);
-    MatrixImport_3D(InputFile + "/sigmaz.txt", nx, ny, nz, _sigmaz);
-
-    fill_3D_array<double_array_type, double>(_eps, nx + 1, ny + 1, nz + 1, eps0);
-    fill_3D_array<double_array_type, double>(_mu, nx + 1, ny + 1, nz + 1, mu0);
-}
-
-void Grid::Mesh_Grid_PatchAntennaArray(const std::string& InputFile)
-{
-    nx = 74; ny = 192; nz = 11; PML = 5;
-
-    qstop = 300;
-
-    t = 6e-9; // Simulation time duration
-    dt = 1e-12;
-    tStep = t / dt;
-
-    s = 5e11; fc = 30e9; td = 1 / (1.5 * fc); tc = 0.5e-9;
-
-    scale = 230 / (s * (tStep - 1) * dt / 2); // Similar as in Myunghyun's paper
-
-    pulseType = 3; // 1 - Gaussian, 2 - Gaussian Derivative, 3 - Modulated Gaussian
-
-    _eps.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _mu.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-
-    _sigmax.resize(boost::extents[nx][ny][nz]);
-    _sigmay.resize(boost::extents[nx][ny][nz]);
-    _sigmaz.resize(boost::extents[nx][ny][nz]);
-    _Jx.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jy.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jz.resize(boost::extents[nx + 1][ny + 1][nz]);
-    _Rz.resize(boost::extents[nx + 1][ny + 1][nz]);
-
-    _dxh = std::make_unique<double[]>(nx + 1);
-    _dyh = std::make_unique<double[]>(ny + 1);
-    _dzh = std::make_unique<double[]>(nz + 1);
-    _dxe = std::make_unique<double[]>(nx + 1);
-    _dye = std::make_unique<double[]>(ny + 1);
-    _dze = std::make_unique<double[]>(nz + 1);
-
-    MatrixImport_1D(InputFile + "/dxh.txt", nx + 1, _dxh.get());
-    MatrixImport_1D(InputFile + "/dyh.txt", ny + 1, _dyh.get());
-    MatrixImport_1D(InputFile + "/dzh.txt", nz + 1, _dzh.get());
-
-    MatrixImport_1D(InputFile + "/dxe.txt", nx + 1, _dxe.get());
-    MatrixImport_1D(InputFile + "/dye.txt", ny + 1, _dye.get());
-    MatrixImport_1D(InputFile + "/dze.txt", nz + 1, _dze.get());
-
-    MatrixImport_3D(InputFile + "/sigmax.txt", nx, ny, nz, _sigmax);
-    MatrixImport_3D(InputFile + "/sigmay.txt", nx, ny, nz, _sigmay);
-
-    MatrixImport_3D(InputFile + "/eps.txt", nx + 1, ny + 1, nz + 1, _eps);
-    fill_3D_array<double_array_type, double>(_mu, nx + 1, ny + 1, nz + 1, mu0);
-
-    int jCellIndex[] = { 24 + PML + 1,40 + PML + 1,1 + PML,1 + PML,1 + 1,4 + 1 }; // jCellIndex is assumed to be 1-indexed
-    int jResistorIndex[] = {0}; // jResistorIndex is assumed to be 1-indexed
-    _JCount = (jCellIndex[1] - jCellIndex[0] + 1) * (jCellIndex[3] - jCellIndex[2] + 1);// Number of parallel current sources
-    num_Resistor = 0; num_probe = 1;
-    //_jResistorIndex = std::make_unique<int[]>(num_Resistor * 6);
-
-    for (size_t i = 0; i < num_Resistor; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count) _jResistorIndex[count + i * 6] = jResistorIndex[count + i * 6];
-    }
-
-    _jCellIndex = std::make_unique<int[]>(6);
-    for (size_t i = 0; i < 6; i++) _jCellIndex[i] = jCellIndex[i];
-
-
-    if (jDirecIndex[2] == 1) // jCellIndex/jResistorIndex is assumed to be 1-indexed
-    {
-        for (int i = _jCellIndex[0] - 1; i <= _jCellIndex[1] - 1; ++i) {
-            for (int j = _jCellIndex[2] - 1; j <= _jCellIndex[3] - 1; ++j) {
-                for (int k = _jCellIndex[4] - 1; k <= _jCellIndex[5] - 1; ++k) {
-                    _Jz[i][j][k] = 1;
-                }
-            }
-        }
-        for (size_t count = 0; count < num_Resistor; count++)
-        {
-            for (int i = _jResistorIndex[0 + 6 * count] - 1; i <= _jResistorIndex[1 + 6 * count] - 1; ++i) {
-                for (int j = _jResistorIndex[2 + 6 * count] - 1; j <= _jResistorIndex[3 + 6 * count] - 1; ++j) {
-                    for (int k = _jResistorIndex[4 + 6 * count] - 1; k <= _jResistorIndex[5 + 6 * count] - 1; ++k) {
-                        _Rz[i][j][k] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Probe Definition
-
-    int probeCell[] = { 32 + PML + 1,32 + PML + 1,15 + PML,15 + PML,3 + 1,3 + 1 };
-
-    _probeCell = std::make_unique<int[]>(num_probe * 6);
-    for (size_t i = 0; i < num_probe; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count)
-        {
-            _probeCell[count + i * 6] = probeCell[count + i * 6];
-
-        }
-    }
+    sumE = std::make_unique<double[]>(Nnode);
+    PrintQ = 0;
 
 }
 
-void Grid::Mesh_Grid()
+void LFDTD::PrintQ_set(int i)
 {
-    nx = 22; ny = 140; nz = 13; PML = 8;
+    if (i) PrintQ = 1;
+}
 
-    qstop = 300;
-
-    t = 6e-9; // Simulation time duration
-    dt = 2e-12;
-    tStep = t / dt;
-
-    s = 3e11; fc = 40e9; td = 1 / (2 * fc); tc = 0.2e-9;
-
-    scale = 230 / (s * (tStep - 1) * dt / 2); // Similar as in Myunghyun's paper
-
-    pulseType = 1; // 1 - Gaussian, 2 - Gaussian Derivative, 3 - Modulated Gaussian
-
-    _eps.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _mu.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-
-    _sigmax.resize(boost::extents[nx][ny][nz]);
-    _sigmay.resize(boost::extents[nx][ny][nz]);
-    _sigmaz.resize(boost::extents[nx][ny][nz]);
-    _Jx.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jy.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jz.resize(boost::extents[nx + 1][ny + 1][nz]);
-    _Rz.resize(boost::extents[nx + 1][ny + 1][nz]);
-
-    _dxh = std::make_unique<double[]>(nx + 1);
-    _dyh = std::make_unique<double[]>(ny + 1);
-    _dzh = std::make_unique<double[]>(nz + 1);
-    _dxe = std::make_unique<double[]>(nx + 1);
-    _dye = std::make_unique<double[]>(ny + 1);
-    _dze = std::make_unique<double[]>(nz + 1);
-
-    for (int i = 0; i < PML; ++i)
-    {
-        _dxe[i] = 0.06e-3;
-        _dye[i] = 0.06e-3;
-    }
-
-    _dxe[PML] = 0.05e-3; // Input line
-    for (int i = 1 + PML; i < 5 + PML; ++i) _dxe[i] = 0.06e-3; // Input line
-    _dxe[5 + PML] = 0.07e-3; // Input line
-    for (int i = 6 + PML; i < nx + 1; ++i) _dxe[i] = 0.06e-3; // PML Region
-
-    for (int j = PML; j < ny + 1; ++j) _dye[j] = 0.06e-3; // Input port
-
-
-    // Flip and copy dy assignment
-    for (int j = 0; j < ny / 2; ++j)
-    {
-        _dye[ny - j - 1] = _dye[j];
-    }
-    _dye[ny] = 0.06e-3;
-
-    _dze[0] = 0.1e-3;
-    for (int k = 1; k < 3; ++k) _dze[k] = 0.0635e-3;
-    for (int k = 3; k < nz + 1; ++k) _dze[k] = 0.1e-3;
-
-    fill_3D_array<double_array_type, double>(_eps, nx + 1, ny + 1, nz + 1, eps0);
-    fill_3D_array<double_array_type, double>(_mu, nx + 1, ny + 1, nz + 1, mu0);
-
-
-    // Ground Plane
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML + 1; ++j) {
-            _sigmax[i][j][1] = 5.8e8;
-        }
-    }
-    for (int i = PML; i < nx - PML + 1; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            _sigmay[i][j][1] = 5.8e8;
-        }
-    }
-
-    // TL 1
-    for (int i = 1 + PML - 1; i < 6 + PML; ++i)
-    {
-        for (int j = PML; j < ny - PML + 1; ++j)
-        {
-            _sigmax[i][j][3] = 5.8e8;
-        }
-    }
-    for (int i = 1 + PML - 1; i < 6 + PML + 1; ++i)
-    {
-        for (int j = PML; j < ny - PML; ++j)
-        {
-            _sigmay[i][j][3] = 5.8e8;
-        }
-    }
-
-    // Dielectric Substrate
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            for (int k = 1; k < 3; ++k) {
-                _eps[i][j][k] *= 2.2;
-            }
-        }
-    }
-
-    for (int i = 0; i < nx + 1; ++i)
-    {
-        if (i == 0) {
-            _dxh[i] = _dxe[i];
-        }
-        else
-        {
-            _dxh[i] = (_dxe[i] + _dxe[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < ny + 1; ++i)
-    {
-        if (i == 0) {
-            _dyh[i] = _dye[i];
-        }
-        else
-        {
-            _dyh[i] = (_dye[i] + _dye[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < nz + 1; ++i)
-    {
-        if (i == 0) {
-            _dzh[i] = _dze[i];
-        }
-        else
-        {
-            _dzh[i] = (_dze[i] + _dze[i - 1]) / 2;
-        }
-    }
-
-    int jCellIndex[] = { PML + 1,PML + 6 + 1,1 + PML,1 + PML,1 + 1,2 + 1 }; // jCellIndex is assumed to be 1-indexed
-    int jResistorIndex[] = { PML + 1,PML + 6 + 1,124 + PML + 1,124 + PML + 1,1 + 1,2 + 1 }; // jResistorIndex is assumed to be 1-indexed
-    _JCount = (jCellIndex[1] - jCellIndex[0] + 1) * (jCellIndex[3] - jCellIndex[2] + 1);// Number of parallel current sources
-    num_Resistor = 1; num_probe = 2;
-    _jResistorIndex = std::make_unique<int[]>(num_Resistor * 6);
-
-    for (size_t i = 0; i < num_Resistor; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count) _jResistorIndex[count + i * 6] = jResistorIndex[count + i * 6];
-    }
-
-    _jCellIndex = std::make_unique<int[]>(6);
-    for (size_t i = 0; i < 6; i++) _jCellIndex[i] = jCellIndex[i];
-
-
-    if (jDirecIndex[2] == 1) // jCellIndex/jResistorIndex is assumed to be 1-indexed
-    {
-        for (int i = _jCellIndex[0] - 1; i <= _jCellIndex[1] - 1; ++i) {
-            for (int j = _jCellIndex[2] - 1; j <= _jCellIndex[3] - 1; ++j) {
-                for (int k = _jCellIndex[4] - 1; k <= _jCellIndex[5] - 1; ++k) {
-                    _Jz[i][j][k] = 1;
-                }
-            }
-        }
-        for (size_t count = 0; count < num_Resistor; count++)
-        {
-            for (int i = _jResistorIndex[0 + 6 * count] - 1; i <= _jResistorIndex[1 + 6 * count] - 1; ++i) {
-                for (int j = _jResistorIndex[2 + 6 * count] - 1; j <= _jResistorIndex[3 + 6 * count] - 1; ++j) {
-                    for (int k = _jResistorIndex[4 + 6 * count] - 1; k <= _jResistorIndex[5 + 6 * count] - 1; ++k) {
-                        _Rz[i][j][k] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Probe Definition
-
-    int probeCell[] = { PML + 1,PML + 6 + 1,11 + PML,11 + PML,1 + 1,2 + 1,
-                       PML + 1,PML + 6 + 1,114 + PML + 1,114 + PML + 1,1 + 1,2 + 1 };
-
-    _probeCell = std::make_unique<int[]>(num_probe * 6);
-    for (size_t i = 0; i < num_probe; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count)
-        {
-            _probeCell[count + i * 6] = probeCell[count + i * 6];
-
-        }
-    }
-
+void LFDTD::Sparse_A_Val(std::ifstream& a_file, int n, const int NNZ)
+{
 
 }
 
-void Grid::Mesh_Grid_2PortFilter()
+void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 {
-    nx = 63; ny = 135; nz = 16; PML = 6;
 
-    qstop = 200;
-
-    t = 3e-9; // Simulation time duration
-    dt = 2e-12;
-    tStep = t / dt;
-
-    s = 1.5e11; fc = 25e9; td = 1 / (1.5 * fc); tc = 0.2e-9;
-
-    scale = 230 / (s * (tStep - 1) * dt / 2); // Similar as in Myunghyun's paper
-
-    pulseType = 1; // 1 - Gaussian, 2 - Gaussian Derivative, 3 - Modulated Gaussian
-
-    _eps.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _mu.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-
-    _sigmax.resize(boost::extents[nx][ny][nz]);
-    _sigmay.resize(boost::extents[nx][ny][nz]);
-    _sigmaz.resize(boost::extents[nx][ny][nz]);
-    _Jx.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jy.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jz.resize(boost::extents[nx + 1][ny + 1][nz]);
-    _Rz.resize(boost::extents[nx + 1][ny + 1][nz]);
-
-    _dxh = std::make_unique<double[]>(nx + 1);
-    _dyh = std::make_unique<double[]>(ny + 1);
-    _dzh = std::make_unique<double[]>(nz + 1);
-    _dxe = std::make_unique<double[]>(nx + 1);
-    _dye = std::make_unique<double[]>(ny + 1);
-    _dze = std::make_unique<double[]>(nz + 1);
-
-
-    for (int i = 0; i < PML - 1; ++i)
+    if (_Solver)
     {
-        _dxe[i] = 0.15e-3;
-        _dye[i] = 0.15e-3;
-    }
-    _dze[0] = 0.15e-3;
+        printf("Constructing Sparse Matrix A ...\n");
 
-    // Upper Region
-    for (int i = PML - 1; i < 25 + PML; ++i) { _dxe[i] = 0.05e-3 * 2; }
-    // Feed Line
-    _dxe[25 + PML] = 0.05e-3;
-    // Lower Region
-    for (int i = 26 + PML; i < nx - PML + 1; ++i) { _dxe[i] = 0.05e-3 * 2; }
+        ia_M = std::make_unique<int[]>(Nnode + 1);
+        ja_M = std::make_unique<int[]>(Nnode);
+        D = std::make_unique<double[]>(Nnode);
+        I = std::make_unique<double[]>(Nnode);
 
-    // Feed Line 1
-    for (int j = PML - 1; j < 20 + PML; ++j) { _dye[j] = 0.05e-3 * 2; }
-    // Stub 1
-    for (int j = 20 + PML; j < 23 + PML; ++j) { _dye[j] = 0.05e-3; }
-    // Center TL till TL 1 for Patch 1
-    for (int j = 23 + PML; j < 40 + PML; ++j) { _dye[j] = 0.05e-3 * 2; }
-    // TL 1 for Patch 1
-    _dye[40 + PML] = 0.05e-3;
-    // TL 1 for Patch 1 to TL 2 for Patch 2
-    for (int j = 41 + PML; j < 61 + PML; ++j) { _dye[j] = 0.05e-3 * 2; }
-    // TL 2 for Patch 2
-    _dye[61 + PML] = 0.05e-3;
-    // TL 2 for Patch 2 to TL 3 for Patch 3
-    for (int j = 62 + PML; j < 82 + PML; ++j) { _dye[j] = 0.05e-3 * 2; }
-    // TL 3 for Patch 3
-    _dye[82 + PML] = 0.05e-3;
-    // TL 3 for Patch 3 to Stub 2
-    for (int j = 83 + PML; j < 100 + PML; ++j) { _dye[j] = 0.05e-3 * 2; }
-    // Stub 2
-    for (int j = 100 + PML; j < 103 + PML; ++j) { _dye[j] = 0.05e-3; }
-    // Feed Line 2
-    for (int j = 103 + PML; j < ny - PML + 1; ++j) { _dye[j] = 0.05e-3 * 2; }
-
-    for (int k = 1; k < 6; ++k) { _dze[k] = 0.05e-3; }
-
-    for (int i = nx - PML + 1; i < nx + 1; ++i) { _dxe[i] = 0.15e-3; }
-    for (int j = ny - PML + 1; j < ny + 1; ++j) { _dye[j] = 0.15e-3; }
-    for (int k = 6; k < nz + 1; ++k) { _dze[k] = 0.15e-3; }
-
-    fill_3D_array<double_array_type, double>(_eps, nx + 1, ny + 1, nz + 1, eps0);
-    fill_3D_array<double_array_type, double>(_mu, nx + 1, ny + 1, nz + 1, mu0);
-
-
-    // Ground Plane
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML + 1; ++j) {
-            _sigmax[i][j][2] = 5.8e8;
-        }
-    }
-    for (int i = PML; i < nx - PML + 1; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            _sigmay[i][j][2] = 5.8e8;
-        }
-    }
-
-    // TL 1
-    for (int i = 25 + PML - 1; i < 27 + PML; ++i)
-    {
-        for (int j = PML; j < 20 + PML + 1; ++j)
+        for (int i = 0; i < Nnode; i++)
         {
-            _sigmax[i][j][5] = 5.8e8;
+            I[i] = 1.0; // Pre-assign 1.0 to all keys for proposed preconditioner
+            ia_M[i] = i;
+            ja_M[i] = i;
         }
-    }
-    for (int i = 25 + PML - 1; i < 27 + PML + 1; ++i)
-    {
-        for (int j = PML; j < 20 + PML; ++j)
+
+        ia_M[Nnode] = Nnode;
+
+        // Ex equations
+        for (int i = 0; i < Coe.nx; ++i)
         {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // Stub 1
-    for (int i = 9 + PML - 1; i < 43 + PML; ++i)
-    {
-        for (int j = 21 + PML - 1; j < 23 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 9 + PML - 1; i < 43 + PML + 1; ++i)
-    {
-        for (int j = 21 + PML - 1; j < 23 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // Center TL
-    for (int i = 26 + PML - 1; i < 26 + PML; ++i)
-    {
-        for (int j = 24 + PML - 1; j < 100 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 26 + PML - 1; i < 26 + PML + 1; ++i)
-    {
-        for (int j = 24 + PML - 1; j < 100 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // Stub 2
-    for (int i = 9 + PML - 1; i < 43 + PML; ++i)
-    {
-        for (int j = 101 + PML - 1; j < 103 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 9 + PML - 1; i < 43 + PML + 1; ++i)
-    {
-        for (int j = 101 + PML - 1; j < 103 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // TL 2
-    for (int i = 25 + PML - 1; i < 27 + PML; ++i)
-    {
-        for (int j = 104 + PML - 1; j < 123 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 25 + PML - 1; i < 27 + PML + 1; ++i)
-    {
-        for (int j = 104 + PML - 1; j < 123 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // Patch 1
-    for (int i = 6 + PML - 1; i < 17 + PML; ++i)
-    {
-        for (int j = 37 + PML - 1; j < 45 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 6 + PML - 1; i < 17 + PML + 1; ++i)
-    {
-        for (int j = 37 + PML - 1; j < 45 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // TL to Patch 1
-    for (int i = 18 + PML - 1; i < 25 + PML; ++i)
-    {
-        for (int j = 41 + PML - 1; j < 41 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 18 + PML - 1; i < 25 + PML + 1; ++i)
-    {
-        for (int j = 41 + PML - 1; j < 41 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // Patch 2
-    for (int i = 36 + PML - 1; i < 47 + PML; ++i)
-    {
-        for (int j = 58 + PML - 1; j < 66 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 36 + PML - 1; i < 47 + PML + 1; ++i)
-    {
-        for (int j = 58 + PML - 1; j < 66 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // TL to Patch 2
-    for (int i = 27 + PML - 1; i < 35 + PML; ++i)
-    {
-        for (int j = 62 + PML - 1; j < 62 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 27 + PML - 1; i < 35 + PML + 1; ++i)
-    {
-        for (int j = 62 + PML - 1; j < 62 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // Patch 3
-    for (int i = 6 + PML - 1; i < 17 + PML; ++i)
-    {
-        for (int j = 79 + PML - 1; j < 87 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 6 + PML - 1; i < 17 + PML + 1; ++i)
-    {
-        for (int j = 79 + PML - 1; j < 87 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-    // TL to Patch 3
-    for (int i = 18 + PML - 1; i < 25 + PML; ++i)
-    {
-        for (int j = 83 + PML - 1; j < 83 + PML + 1; ++j)
-        {
-            _sigmax[i][j][5] = 5.8e8;
-        }
-    }
-    for (int i = 18 + PML - 1; i < 25 + PML + 1; ++i)
-    {
-        for (int j = 83 + PML - 1; j < 83 + PML; ++j)
-        {
-            _sigmay[i][j][5] = 5.8e8;
-        }
-    }
-
-
-    // Dielectric Substrate
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            for (int k = 2; k <= 4; ++k) {
-                _eps[i][j][k] *= 2.94;
-            }
-        }
-    }
-
-
-    for (int i = 0; i < nx + 1; ++i)
-    {
-        if (i == 0) {
-            _dxh[i] = _dxe[i];
-        }
-        else
-        {
-            _dxh[i] = (_dxe[i] + _dxe[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < ny + 1; ++i)
-    {
-        if (i == 0) {
-            _dyh[i] = _dye[i];
-        }
-        else
-        {
-            _dyh[i] = (_dye[i] + _dye[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < nz + 1; ++i)
-    {
-        if (i == 0) {
-            _dzh[i] = _dze[i];
-        }
-        else
-        {
-            _dzh[i] = (_dze[i] + _dze[i - 1]) / 2;
-        }
-    }
-
-
-    int jCellIndex[] = { 25 + PML,27 + PML + 1,1 + PML,1 + PML,2 + 1,4 + 1 }; // jCellIndex is assumed to be 1-indexed
-    int jResistorIndex[] = { 25 + PML,27 + PML + 1,123 + PML + 1,123 + PML + 1,2 + 1,4 + 1 }; // jResistorIndex is assumed to be 1-indexed
-    _JCount = (jCellIndex[1] - jCellIndex[0] + 1) * (jCellIndex[3] - jCellIndex[2] + 1);// Number of parallel current sources
-    num_Resistor = 1; num_probe = 2;
-    _jResistorIndex = std::make_unique<int[]>(num_Resistor * 6);
-
-    for (size_t i = 0; i < num_Resistor; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count) _jResistorIndex[count + i * 6] = jResistorIndex[count + i * 6];
-    }
-
-    _jCellIndex = std::make_unique<int[]>(6);
-    for (size_t i = 0; i < 6; i++) _jCellIndex[i] = jCellIndex[i];
-
-
-    if (jDirecIndex[2] == 1) // jCellIndex/jResistorIndex is assumed to be 1-indexed
-    {
-        for (int i = _jCellIndex[0] - 1; i <= _jCellIndex[1] - 1; ++i) {
-            for (int j = _jCellIndex[2] - 1; j <= _jCellIndex[3] - 1; ++j) {
-                for (int k = _jCellIndex[4] - 1; k <= _jCellIndex[5] - 1; ++k) {
-                    _Jz[i][j][k] = 1;
-                }
-            }
-        }
-        for (size_t count = 0; count < num_Resistor; count++)
-        {
-            for (int i = _jResistorIndex[0 + 6 * count] - 1; i <= _jResistorIndex[1 + 6 * count] - 1; ++i) {
-                for (int j = _jResistorIndex[2 + 6 * count] - 1; j <= _jResistorIndex[3 + 6 * count] - 1; ++j) {
-                    for (int k = _jResistorIndex[4 + 6 * count] - 1; k <= _jResistorIndex[5 + 6 * count] - 1; ++k) {
-                        _Rz[i][j][k] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Probe Definition
-
-    int probeCell[] = { 25 + PML,27 + PML + 1,11 + PML,11 + PML,2 + 1,4 + 1,
-                        25 + PML,27 + PML + 1,113 + PML + 1,113 + PML + 1,2 + 1,4 + 1 };
-
-    _probeCell = std::make_unique<int[]>(num_probe * 6);
-    for (size_t i = 0; i < num_probe; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count)
-        {
-            _probeCell[count + i * 6] = probeCell[count + i * 6];
-
-        }
-    }
-
-}
-
-void Grid::Mesh_Grid_4PortFilter()
-{
-    nx = 53; ny = 89; nz = 13; PML = 5;
-
-    qstop = 600;
-
-    t = 6e-9; // Simulation time duration
-    dt = 2e-12;
-    tStep = t / dt;
-
-    s = 1.5e11; fc = 10e9; td = 1 / (1.5 * fc); tc = 0.5e-9;
-
-    scale = 230 / (s * (tStep - 1) * dt / 2); // Similar as in Myunghyun's paper
-
-    pulseType = 1; // 1 - Gaussian, 2 - Gaussian Derivative, 3 - Modulated Gaussian
-
-    _eps.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _mu.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-
-    _sigmax.resize(boost::extents[nx][ny][nz]);
-    _sigmay.resize(boost::extents[nx][ny][nz]);
-    _sigmaz.resize(boost::extents[nx][ny][nz]);
-    _Jx.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jy.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jz.resize(boost::extents[nx + 1][ny + 1][nz]);
-    _Rz.resize(boost::extents[nx + 1][ny + 1][nz]);
-
-    _dxh = std::move(std::make_unique<double[]>(nx + 1));
-    _dyh = std::move(std::make_unique<double[]>(ny + 1));
-    _dzh = std::move(std::make_unique<double[]>(nz + 1));
-    _dxe = std::move(std::make_unique<double[]>(nx + 1));
-    _dye = std::move(std::make_unique<double[]>(ny + 1));
-    _dze = std::move(std::make_unique<double[]>(nz + 1));
-
-    for (int i = 0; i < PML; ++i)
-    {
-        _dxe[i] = 1e-3;
-        _dye[i] = 1e-3;
-    }
-
-    // Substrate Edge Offset
-    for (int i = PML; i < PML + 5; ++i) { _dxe[i] = 1e-3; }
-    // Upper Resonator Block
-    for (int i = PML + 5; i < PML + 9; ++i) { _dxe[i] = 0.52e-3; }
-    _dxe[PML + 9] = 0.075e-3;
-    _dxe[PML + 10] = 0.09e-3;
-    _dxe[PML + 11] = 0.18e-3;
-    _dxe[PML + 12] = 0.09e-3;
-    _dxe[PML + 13] = 0.075e-3;
-    for (int i = PML + 14; i < PML + 18; ++i) { _dxe[i] = 0.52e-3; }
-    // Taper to middle resonator block
-    _dxe[PML + 18] = 1.446e-3;
-    // Middle Resonator Block
-    for (int i = PML + 19; i < PML + 21; ++i) { _dxe[i] = 1e-3; }
-    _dxe[PML + 21] = 0.4e-3;
-    // Flip and copy the x directional grid
-    for (int i = 0; i < nx / 2; ++i) { _dxe[nx - i - 1] = _dxe[i]; }
-
-    // TL
-    for (int i = PML; i < PML + 10; ++i) { _dye[i] = 1e-3; }
-    // First middle resonator offset
-    _dye[PML + 10] = 1.15625e-3;
-    // Upper Resonator Block
-    for (int i = PML + 11; i < PML + 13; ++i) { _dye[i] = 0.99375e-3; }
-    _dye[PML + 13] = 0.5e-3;
-    for (int i = PML + 14; i < PML + 16; ++i) { _dye[i] = 0.99375e-3; }
-    // First Taper Transition
-    _dye[PML + 16] = 1.5625e-3;
-    for (int i = PML + 17; i < PML + 20; ++i) { _dye[i] = 1e-3; }
-    _dye[PML + 20] = 1.575e-3;
-    for (int i = PML + 21; i < PML + 23; ++i) { _dye[i] = 1.43125e-3; }
-    // Upper Resonator Block
-    for (int i = PML + 23; i < PML + 25; ++i) { _dye[i] = 0.99375e-3; }
-    _dye[PML + 25] = 0.5e-3;
-    for (int i = PML + 26; i < PML + 28; ++i) { _dye[i] = 0.99375e-3; }
-    // Second Taper Transition
-    for (int i = PML + 28; i < PML + 30; ++i) { _dye[i] = 1.43125e-3; }
-    for (int i = PML + 30; i < PML + 35; ++i) { _dye[i] = 1e-3; }
-    _dye[PML + 35] = 1.2125e-3;
-    _dye[PML + 36] = 0.925e-3;
-    // Third Resonator Block (Half)
-    for (int i = PML + 37; i < PML + 39; ++i) { _dye[i] = 0.99375e-3; }
-    _dye[PML + 39] = 0.5e-3;
-    // Flip and copy the y directional grid
-    for (int i = 0; i < ny / 2; ++i) { _dye[ny - i - 1] = _dye[i]; }
-
-    for (int i = 0; i < 2; ++i) { _dze[i] = 1e-3; }
-    for (int i = 2; i < 4; ++i) { _dze[i] = 0.3175e-3; }
-    for (int i = 4; i < nz; ++i) { _dze[i] = 1e-3; }
-
-    fill_3D_array<double_array_type>(_eps, nx + 1, ny + 1, nz + 1, eps0);
-    fill_3D_array<double_array_type>(_mu, nx + 1, ny + 1, nz + 1, mu0);
-
-    // Dielectric Substrate
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            for (int k = 2; k < 4; ++k) {
-                _eps[i][j][k] *= 10.2;
-            }
-        }
-    }
-
-    // Ground Plane
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML + 1; ++j) {
-            _sigmax[i][j][2] = 5.8e8;
-        }
-    }
-    for (int i = PML; i < nx - PML + 1; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            _sigmay[i][j][2] = 5.8e8;
-        }
-    }
-
-    /*** Sigma X Section ***/
-
-    // TL
-    for (int i = PML + 9; i < PML + 14; ++i) {
-        for (int j = PML; j < PML + 12; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // Resonator Block
-    for (int i = PML + 5; i < PML + 18; ++i) {
-        for (int j = PML + 11; j < PML + 17; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // 1st Taper
-    for (int i = PML + 10; i < PML + 13; ++i) {
-        for (int j = PML + 16; j < PML + 24; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // Resonator Block
-    for (int i = PML + 5; i < PML + 18; ++i) {
-        for (int j = PML + 23; j < PML + 29; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // 2nd Taper
-    for (int i = PML + 11; i < PML + 12; ++i) {
-        for (int j = PML + 28; j < PML + 38; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // Resonator Block
-    for (int i = PML + 5; i < PML + 18; ++i) {
-        for (int j = PML + 37; j < PML + 41; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // Taper to middle resonator
-    for (int i = PML + 18; i < PML + 19; ++i) {
-        for (int j = PML + 13; j < PML + 15; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-    for (int i = PML + 18; i < PML + 19; ++i) {
-        for (int j = PML + 25; j < PML + 27; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-    for (int i = PML + 18; i < PML + 19; ++i) {
-        for (int j = PML + 39; j < PML + 41; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // 1st Middle resonator
-    for (int i = PML + 19; i < PML + 22; ++i) {
-        for (int j = PML + 10; j < PML + 18; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // 2nd Middle resonator
-    for (int i = PML + 19; i < PML + 22; ++i) {
-        for (int j = PML + 21; j < PML + 31; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-    // 3rd Middle resonator
-    for (int i = PML + 19; i < PML + 22; ++i) {
-        for (int j = PML + 36; j < PML + 41; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    // Flip and copy
-    for (int i = 0; i < nx / 2; ++i) {
-        for (int j = 0; j < ny; ++j) {
-            _sigmax[nx - i - 1][j][4] = _sigmax[i][j][4];
-        }
-    }
-    int Reverse_y = PML + 38;
-    for (int j = PML + 41; j < ny; ++j) {
-        for (int i = 0; i < nx; ++i) {
-            _sigmax[i][j][4] = _sigmax[i][Reverse_y][4];
-        }
-        Reverse_y--;
-    }
-
-    /*** Sigma Y Section ***/
-    // TL
-    for (int i = PML + 9; i < PML + 14 + 1; ++i) {
-        for (int j = PML; j < PML + 12 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    // Resonator Block
-    for (int i = PML + 5; i < PML + 18 + 1; ++i) {
-        for (int j = PML + 11; j < PML + 17 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    // 1st Taper
-    for (int i = PML + 10; i < PML + 13 + 1; ++i) {
-        for (int j = PML + 16; j < PML + 24 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    // Resonator Block
-    for (int i = PML + 5; i < PML + 18 + 1; ++i) {
-        for (int j = PML + 23; j < PML + 29 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    // 2nd Taper
-    for (int i = PML + 11; i < PML + 12 + 1; ++i) {
-        for (int j = PML + 28; j < PML + 38 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    // Resonator Block
-    for (int i = PML + 5; i < PML + 18 + 1; ++i) {
-        for (int j = PML + 37; j < PML + 41 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    // Taper to middle resonator
-    for (int i = PML + 18; i < PML + 19 + 1; ++i) {
-        for (int j = PML + 13; j < PML + 15 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    for (int i = PML + 18; i < PML + 19 + 1; ++i) {
-        for (int j = PML + 25; j < PML + 27 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    for (int i = PML + 18; i < PML + 19 + 1; ++i) {
-        for (int j = PML + 39; j < PML + 41 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-
-    // 1st Middle resonator
-    for (int i = PML + 19; i < PML + 22 + 1; ++i) {
-        for (int j = PML + 10; j < PML + 18 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-
-    // 2nd Middle resonator
-    for (int i = PML + 19; i < PML + 22 + 1; ++i) {
-        for (int j = PML + 21; j < PML + 31 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-    // 3rd Middle resonator
-    for (int i = PML + 19; i < PML + 22 + 1; ++i) {
-        for (int j = PML + 36; j < PML + 41 - 1; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-
-    // Flip and copy
-    int Reverse_x = PML + 20;
-    for (int i = PML + 23; i < nx; ++i) {
-        for (int j = 0; j < ny; ++j) {
-            _sigmay[i][j][4] = _sigmay[Reverse_x][j][4];
-        }
-        Reverse_x--;
-    }
-
-    for (int i = 0; i < nx; ++i) {
-        for (int j = 0; j < ny / 2; ++j) {
-            _sigmay[i][ny - 1 - j][4] = _sigmay[i][j][4];
-        }
-    }
-
-
-    for (int i = 0; i < nx + 1; ++i)
-    {
-        if (i == 0) {
-            _dxh[i] = _dxe[i];
-        }
-        else
-        {
-            _dxh[i] = (_dxe[i] + _dxe[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < ny + 1; ++i)
-    {
-        if (i == 0) {
-            _dyh[i] = _dye[i];
-        }
-        else
-        {
-            _dyh[i] = (_dye[i] + _dye[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < nz + 1; ++i)
-    {
-        if (i == 0) {
-            _dzh[i] = _dze[i];
-        }
-        else
-        {
-            _dzh[i] = (_dze[i] + _dze[i - 1]) / 2;
-        }
-    }
-
-
-    int jCellIndex[] = { PML + 10, PML + 15, PML + 1, PML + 1, 2 + 1, 3 + 1 }; // jCellIndex is assumed to be 1-indexed
-    int jResistorIndex[] = { PML + 10, PML + 15, ny - PML + 1, ny - PML + 1, 2 + 1, 3 + 1,
-                             PML + 30, PML + 35, PML + 1, PML + 1, 2 + 1, 3 + 1,
-                             PML + 30, PML + 35, ny - PML + 1, ny - PML + 1, 2 + 1, 3 + 1 }; // jResistorIndex is assumed to be 1-indexed
-    _JCount = (jCellIndex[1] - jCellIndex[0] + 1) * (jCellIndex[3] - jCellIndex[2] + 1);// Number of parallel current sources
-    num_Resistor = 3; num_probe = 2;
-    _jResistorIndex = std::make_unique<int[]>(num_Resistor * 6);
-
-    for (size_t i = 0; i < num_Resistor; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count) _jResistorIndex[count + i * 6] = jResistorIndex[count + i * 6];
-    }
-
-    _jCellIndex = std::make_unique<int[]>(6);
-    for (size_t i = 0; i < 6; i++) _jCellIndex[i] = jCellIndex[i];
-
-
-    if (jDirecIndex[2] == 1) // jCellIndex/jResistorIndex is assumed to be 1-indexed
-    {
-        for (int i = _jCellIndex[0] - 1; i <= _jCellIndex[1] - 1; ++i) {
-            for (int j = _jCellIndex[2] - 1; j <= _jCellIndex[3] - 1; ++j) {
-                for (int k = _jCellIndex[4] - 1; k <= _jCellIndex[5] - 1; ++k) {
-                    _Jz[i][j][k] = 1;
-                }
-            }
-        }
-        for (size_t count = 0; count < num_Resistor; count++)
-        {
-            for (int i = _jResistorIndex[0 + 6 * count] - 1; i <= _jResistorIndex[1 + 6 * count] - 1; ++i) {
-                for (int j = _jResistorIndex[2 + 6 * count] - 1; j <= _jResistorIndex[3 + 6 * count] - 1; ++j) {
-                    for (int k = _jResistorIndex[4 + 6 * count] - 1; k <= _jResistorIndex[5 + 6 * count] - 1; ++k) {
-                        _Rz[i][j][k] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Probe Definition
-
-    int probeCell[] = { PML + 10, PML + 15, PML + 6, PML + 6, 2 + 1, 3 + 1,
-                        PML + 10, PML + 15, ny - PML - 6, ny - PML - 6, 2 + 1, 3 + 1 };
-
-    _probeCell = std::make_unique<int[]>(num_probe * 6);
-    for (size_t i = 0; i < num_probe; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count)
-        {
-            _probeCell[count + i * 6] = probeCell[count + i * 6];
-        }
-    }
-}
-
-void Grid::Mesh_Grid_4PortFilter_MS()
-{
-    nx = 53; ny = 89; nz = 13; PML = 5;
-
-    qstop = 200;
-
-    t = 6e-9; // Simulation time duration
-    dt = 2e-12;
-    tStep = t / dt;
-
-    s = 1.5e11; fc = 10e9; td = 1 / (1.5 * fc); tc = 0.5e-9;
-
-    scale = 230 / (s * (tStep - 1) * dt / 2); // Similar as in Myunghyun's paper
-
-    pulseType = 1; // 1 - Gaussian, 2 - Gaussian Derivative, 3 - Modulated Gaussian
-
-    _eps.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _mu.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-
-    _sigmax.resize(boost::extents[nx][ny][nz]);
-    _sigmay.resize(boost::extents[nx][ny][nz]);
-    _sigmaz.resize(boost::extents[nx][ny][nz]);
-    _Jx.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jy.resize(boost::extents[nx + 1][ny][nz + 1]);
-    _Jz.resize(boost::extents[nx + 1][ny + 1][nz]);
-    _Rz.resize(boost::extents[nx + 1][ny + 1][nz]);
-
-    _dxh = std::move(std::make_unique<double[]>(nx + 1));
-    _dyh = std::move(std::make_unique<double[]>(ny + 1));
-    _dzh = std::move(std::make_unique<double[]>(nz + 1));
-    _dxe = std::move(std::make_unique<double[]>(nx + 1));
-    _dye = std::move(std::make_unique<double[]>(ny + 1));
-    _dze = std::move(std::make_unique<double[]>(nz + 1));
-
-    for (int i = 0; i < PML; ++i)
-    {
-        _dxe[i] = 1e-3;
-        _dye[i] = 1e-3;
-    }
-
-    // Substrate Edge Offset
-    for (int i = PML; i < PML + 5; ++i) { _dxe[i] = 1e-3; }
-    // Upper Resonator Block
-    for (int i = PML + 5; i < PML + 9; ++i) { _dxe[i] = 0.52e-3; }
-    _dxe[PML + 9] = 0.075e-3;
-    _dxe[PML + 10] = 0.09e-3;
-    _dxe[PML + 11] = 0.18e-3;
-    _dxe[PML + 12] = 0.09e-3;
-    _dxe[PML + 13] = 0.075e-3;
-    for (int i = PML + 14; i < PML + 18; ++i) { _dxe[i] = 0.52e-3; }
-    // Taper to middle resonator block
-    _dxe[PML + 18] = 1.446e-3;
-    // Middle Resonator Block
-    for (int i = PML + 19; i < PML + 21; ++i) { _dxe[i] = 1e-3; }
-    _dxe[PML + 21] = 0.4e-3;
-    // Flip and copy the x directional grid
-    for (int i = 0; i < nx / 2; ++i) { _dxe[nx - i - 1] = _dxe[i]; }
-
-    // TL
-    for (int i = PML; i < PML + 10; ++i) { _dye[i] = 1e-3; }
-    // First middle resonator offset
-    _dye[PML + 10] = 1.15625e-3;
-    // Upper Resonator Block
-    for (int i = PML + 11; i < PML + 13; ++i) { _dye[i] = 0.99375e-3; }
-    _dye[PML + 13] = 0.5e-3;
-    for (int i = PML + 14; i < PML + 16; ++i) { _dye[i] = 0.99375e-3; }
-    // First Taper Transition
-    _dye[PML + 16] = 1.5625e-3;
-    for (int i = PML + 17; i < PML + 20; ++i) { _dye[i] = 1e-3; }
-    _dye[PML + 20] = 1.575e-3;
-    for (int i = PML + 21; i < PML + 23; ++i) { _dye[i] = 1.43125e-3; }
-    // Upper Resonator Block
-    for (int i = PML + 23; i < PML + 25; ++i) { _dye[i] = 0.99375e-3; }
-    _dye[PML + 25] = 0.5e-3;
-    for (int i = PML + 26; i < PML + 28; ++i) { _dye[i] = 0.99375e-3; }
-    // Second Taper Transition
-    for (int i = PML + 28; i < PML + 30; ++i) { _dye[i] = 1.43125e-3; }
-    for (int i = PML + 30; i < PML + 35; ++i) { _dye[i] = 1e-3; }
-    _dye[PML + 35] = 1.2125e-3;
-    _dye[PML + 36] = 0.925e-3;
-    // Third Resonator Block (Half)
-    for (int i = PML + 37; i < PML + 39; ++i) { _dye[i] = 0.99375e-3; }
-    _dye[PML + 39] = 0.5e-3;
-    // Flip and copy the y directional grid
-    for (int i = 0; i < ny / 2; ++i) { _dye[ny - i - 1] = _dye[i]; }
-
-    for (int i = 0; i < 2; ++i) { _dze[i] = 1e-3; }
-    for (int i = 2; i < 4; ++i) { _dze[i] = 0.3175e-3; }
-    for (int i = 4; i < nz; ++i) { _dze[i] = 1e-3; }
-
-    fill_3D_array<double_array_type>(_eps, nx + 1, ny + 1, nz + 1, eps0);
-    fill_3D_array<double_array_type>(_mu, nx + 1, ny + 1, nz + 1, mu0);
-
-    // Dielectric Substrate
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            for (int k = 2; k < 4; ++k) {
-                _eps[i][j][k] *= 10.2;
-            }
-        }
-    }
-
-    // Ground Plane
-    for (int i = PML; i < nx - PML; ++i) {
-        for (int j = PML; j < ny - PML + 1; ++j) {
-            _sigmax[i][j][2] = 5.8e8;
-        }
-    }
-    for (int i = PML; i < nx - PML + 1; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            _sigmay[i][j][2] = 5.8e8;
-        }
-    }
-
-    /*** Sigma X Section ***/
-
-    // TL
-    for (int i = PML + 9; i < PML + 14; ++i) {
-        for (int j = PML; j < ny - PML + 1; ++j) {
-            _sigmax[i][j][4] = 5.8e8;
-        }
-    }
-
-    /*** Sigma Y Section ***/
-
-    // TL
-    for (int i = PML + 9; i < PML + 14 + 1; ++i) {
-        for (int j = PML; j < ny - PML; ++j) {
-            _sigmay[i][j][4] = 5.8e8;
-        }
-    }
-
-    for (int i = 0; i < nx + 1; ++i)
-    {
-        if (i == 0) {
-            _dxh[i] = _dxe[i];
-        }
-        else
-        {
-            _dxh[i] = (_dxe[i] + _dxe[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < ny + 1; ++i)
-    {
-        if (i == 0) {
-            _dyh[i] = _dye[i];
-        }
-        else
-        {
-            _dyh[i] = (_dye[i] + _dye[i - 1]) / 2;
-        }
-    }
-
-    for (int i = 0; i < nz + 1; ++i)
-    {
-        if (i == 0) {
-            _dzh[i] = _dze[i];
-        }
-        else
-        {
-            _dzh[i] = (_dze[i] + _dze[i - 1]) / 2;
-        }
-    }
-
-
-    int jCellIndex[] = { PML + 10, PML + 15, PML + 1, PML + 1, 2 + 1, 3 + 1 }; // jCellIndex is assumed to be 1-indexed
-    int jResistorIndex[] = { PML + 10, PML + 15, ny - PML + 1, ny - PML + 1, 2 + 1, 3 + 1}; // jResistorIndex is assumed to be 1-indexed
-    _JCount = (jCellIndex[1] - jCellIndex[0] + 1) * (jCellIndex[3] - jCellIndex[2] + 1);// Number of parallel current sources
-    num_Resistor = 1; num_probe = 2;
-    _jResistorIndex = std::make_unique<int[]>(num_Resistor * 6);
-
-    for (size_t i = 0; i < num_Resistor; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count) _jResistorIndex[count + i * 6] = jResistorIndex[count + i * 6];
-    }
-
-    _jCellIndex = std::make_unique<int[]>(6);
-    for (size_t i = 0; i < 6; i++) _jCellIndex[i] = jCellIndex[i];
-
-
-    if (jDirecIndex[2] == 1) // jCellIndex/jResistorIndex is assumed to be 1-indexed
-    {
-        for (int i = _jCellIndex[0] - 1; i <= _jCellIndex[1] - 1; ++i) {
-            for (int j = _jCellIndex[2] - 1; j <= _jCellIndex[3] - 1; ++j) {
-                for (int k = _jCellIndex[4] - 1; k <= _jCellIndex[5] - 1; ++k) {
-                    _Jz[i][j][k] = 1;
-                }
-            }
-        }
-        for (size_t count = 0; count < num_Resistor; count++)
-        {
-            for (int i = _jResistorIndex[0 + 6 * count] - 1; i <= _jResistorIndex[1 + 6 * count] - 1; ++i) {
-                for (int j = _jResistorIndex[2 + 6 * count] - 1; j <= _jResistorIndex[3 + 6 * count] - 1; ++j) {
-                    for (int k = _jResistorIndex[4 + 6 * count] - 1; k <= _jResistorIndex[5 + 6 * count] - 1; ++k) {
-                        _Rz[i][j][k] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Probe Definition
-
-    int probeCell[] = { PML + 10, PML + 15, PML + 6, PML + 6, 2 + 1, 3 + 1,
-                        PML + 10, PML + 15, ny - PML - 6, ny - PML - 6, 2 + 1, 3 + 1 };
-
-    _probeCell = std::make_unique<int[]>(num_probe * 6);
-    for (size_t i = 0; i < num_probe; ++i)
-    {
-        for (size_t count = 0; count < 6; ++count)
-        {
-            _probeCell[count + i * 6] = probeCell[count + i * 6];
-        }
-    }
-}
-
-void Grid::Mesh_Visual()
-{
-    if (!glfwInit()) {
-        std::cerr << "glfw init err" << std::endl;
-        exit(-1);
-    }
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-#ifdef __APPLE__ // For MacOS only
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-    GLFWwindow* window;
-
-    /* Create a windowed mode window and its OpenGL context */
-    window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Hello World", NULL, NULL);
-    if (!window)
-    {
-        glfwTerminate();
-        std::cerr << "ERROR:Cannot set up Windows!!" << std::endl;
-        exit(-1);
-    }
-
-    /* Make the window's context current */
-    glfwMakeContextCurrent(window);
-    glfwSetCursorPosCallback(window, right_mouse_callback);
-    glfwSetScrollCallback(window, scroll_callback);
-
-    if (glewInit() != GLEW_OK)
-    {
-        std::cerr << "ERROR:Cannot set up glewInit()!" << std::endl;
-        exit(-1);
-    }
-
-    float mesh_ref = _dxe[0]; // Set dxe[0] value as the plot meshing reference. In practice, it can be any value
-
-    std::unique_ptr<float[]> dx_nrm = std::make_unique<float[]>(nx);
-    std::unique_ptr<float[]> dy_nrm = std::make_unique<float[]>(ny);
-    std::unique_ptr<float[]> dz_nrm = std::make_unique<float[]>(nz);
-
-    for (int i = 0; i < nx; ++i) {
-        dx_nrm[i] = (_dxe[i] / mesh_ref) * x_scale;
-    }
-
-    for (int j = 0; j < ny; ++j) {
-        dy_nrm[j] = (_dye[j] / mesh_ref) * y_scale;
-    }
-
-    for (int k = 0; k < nz; ++k) {
-        dz_nrm[k] = (_dze[k] / mesh_ref) * z_scale;
-    }
-
-
-    glGenBuffers(1, &VBO);
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, pos_count * sizeof(float), positions, GL_STATIC_DRAW);
-
-    // position attribute
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 6, 0);
-
-    // color attribute
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 6, (void*)(3 * sizeof(float)));
-
-
-    // configure global opengl state
-    // -----------------------------
-    glEnable(GL_DEPTH_TEST);
-
-    Shader source("../Basic.shader");
-
-    if (!source.Shader_STATUS) {
-        std::cerr << "ERROR:Cannot load shaders!" << std::endl;
-        source.Delete();
-        glfwTerminate();
-        exit(-1);
-    }
-
-    /* Loop until the user closes the window */
-    while (!glfwWindowShouldClose(window))
-    {
-        // input
-        // -----
-        processInput(window);
-
-        if (WireView)
-        {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, wire_count * sizeof(unsigned int), wire_indices, GL_STATIC_DRAW);
-
-        }
-        else
-        {
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices_count * sizeof(unsigned int), indices, GL_STATIC_DRAW);
-        }
-
-        // per-frame time logic
-        // --------------------
-        float currentFrame = static_cast<float>(glfwGetTime());
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-
-        /* Render here */
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        //glUseProgram(shader);
-        source.use();
-        // create transformations
-        glm::mat4 projection = glm::mat4(1.0f);
-
-        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-        source.setMat4("view", view);
-        // note: currently we set the projection matrix each frame, but since the projection matrix rarely changes it's often best practice to set it outside the main loop only once.
-        source.setMat4("projection", projection);
-
-        glBindVertexArray(VAO);
-
-        for (int i = 0; i < nx - 1; ++i) {
-
-            if (i == 0)
-                dx = 0.5f * dx_nrm[i] + 0.5f * dx_nrm[i];
-            else
-                dx = 0.5f * dx_nrm[i - 1] + 0.5f * dx_nrm[i];
-
-            lx += dx;
-
-            for (int j = 0; j < ny - 1; ++j) {
-
-                if (j == 0)
-                    dy = 0.5f * dy_nrm[j] + 0.5f * dy_nrm[j];
-                else
-                    dy = 0.5f * dy_nrm[j - 1] + 0.5f * dy_nrm[j];
-                ly -= dy;
-
-                for (int k = 1; k < nz - 1; ++k) {
-
-                    if (k == 0)
-                        dz = 0.5f * dz_nrm[k] + 0.5f * dz_nrm[k];
-                    else
-                        dz = 0.5f * dz_nrm[k - 1] + 0.5f * dz_nrm[k];
-                    lz += dz;
-
-                    glm::mat4 model = glm::mat4(1.0f); // make sure to initialize matrix to identity matrix first
-                    glm::mat4 RGB = glm::mat4(1.0f);
-
-                    if (_sigmay[i][j][k+1] && _sigmax[i][j][k+1] && _sigmay[i + 1][j][k+1] && _sigmax[i][j + 1][k+1] && _eps[i][j][k + 1] != eps0) // Bottom GND mesh view
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ex111 = Coe._nodeNum[i][j][k][0];
+
+                    ex121 = Coe._nodeNum[i][j + 1][k][0];
+                    ey211 = Coe._nodeNum[i + 1][j][k][1];
+                    ey111 = Coe._nodeNum[i][j][k][1];
+
+                    ex101 = Coe._nodeNum[i][j - 1][k][0];
+                    ey201 = Coe._nodeNum[i + 1][j - 1][k][1];
+                    ey101 = Coe._nodeNum[i][j - 1][k][1];
+
+                    ez211 = Coe._nodeNum[i + 1][j][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+                    ex112 = Coe._nodeNum[i][j][k + 1][0];
+
+                    ez210 = Coe._nodeNum[i + 1][j][k - 1][2];
+                    ez110 = Coe._nodeNum[i][j][k - 1][2];
+                    ex110 = Coe._nodeNum[i][j][k - 1][0];
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                    VAL.emplace_back(1.0 + Coe._cey[i][j][k] * Coe._chy[i][j][k] + Coe._cey[i][j][k]
+                        * Coe._chy[i][j - 1][k] + Coe._cez[i][j][k] * Coe._chz[i][j][k]
+                        + Coe._cez[i][j][k] * Coe._chz[i][j][k - 1] + 2 * Coe._sigmax[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+                    NNZ++;
+
+                    D[ex111] = 1 / (1.0 + Coe._cey[i][j][k] * Coe._chy[i][j][k] + Coe._cey[i][j][k]
+                        * Coe._chy[i][j - 1][k] + Coe._cez[i][j][k] * Coe._chz[i][j][k]
+                        + Coe._cez[i][j][k] * Coe._chz[i][j][k - 1] + 2 * Coe._sigmax[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+
+                    if (Coe._sigmax[i][j][k] != 0)
                     {
-                        RGB = glm::translate(RGB, glm::vec3(1.0f, 1.0f, 0.0f));
-                        source.setMat4("RGB", RGB);
+                        I[ex111] = (1.0 + Coe._cey[i][j][k] * Coe._chy[i][j][k] + Coe._cey[i][j][k]
+                            * Coe._chy[i][j - 1][k] + Coe._cez[i][j][k] * Coe._chz[i][j][k]
+                            + Coe._cez[i][j][k] * Coe._chz[i][j][k - 1])
+                            / (1.0 + Coe._cey[i][j][k] * Coe._chy[i][j][k] + Coe._cey[i][j][k]
+                                * Coe._chy[i][j - 1][k] + Coe._cez[i][j][k] * Coe._chz[i][j][k]
+                                + Coe._cez[i][j][k] * Coe._chz[i][j][k - 1] + 2 * Coe._sigmax[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+
                     }
-                    else if (_eps[i][j][k - 1] != eps0 && _sigmay[i][j][k] && _sigmax[i][j][k] && _sigmay[i + 1][j][k] && _sigmax[i][j + 1][k]) // Top trace mesh view
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex121);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey211);
+                    VAL.emplace_back(Coe._cey[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey111);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex101);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey201);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chx[i][j - 1][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey101);
+                    VAL.emplace_back(Coe._cey[i][j][k] * Coe._chx[i][j - 1][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez211);
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez111);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex112);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez210);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chx[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez110);
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chx[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex110);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k - 1]); NNZ++;
+
+                }
+            }
+        }
+
+        // Ey equations
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ey111 = Coe._nodeNum[i][j][k][1];
+
+                    ey112 = Coe._nodeNum[i][j][k + 1][1];
+                    ez121 = Coe._nodeNum[i][j + 1][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+
+                    ey110 = Coe._nodeNum[i][j][k - 1][1];
+                    ez120 = Coe._nodeNum[i][j + 1][k - 1][2];
+                    ez110 = Coe._nodeNum[i][j][k - 1][2];
+
+                    ex121 = Coe._nodeNum[i][j + 1][k][0];
+                    ex111 = Coe._nodeNum[i][j][k][0];
+                    ey211 = Coe._nodeNum[i + 1][j][k][1];
+
+                    ex021 = Coe._nodeNum[i - 1][j + 1][k][0];
+                    ex011 = Coe._nodeNum[i - 1][j][k][0];
+                    ey011 = Coe._nodeNum[i - 1][j][k][1];
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                    VAL.emplace_back(1.0 + Coe._cez[i][j][k] * Coe._chz[i][j][k] + Coe._cez[i][j][k]
+                        * Coe._chz[i][j][k - 1] + Coe._cex[i][j][k] * Coe._chx[i][j][k]
+                        + Coe._cex[i][j][k] * Coe._chx[i - 1][j][k] + 2 * Coe._sigmay[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+                    NNZ++;
+
+                    D[ey111] = 1 / (1.0 + Coe._cez[i][j][k] * Coe._chz[i][j][k] + Coe._cez[i][j][k]
+                        * Coe._chz[i][j][k - 1] + Coe._cex[i][j][k] * Coe._chx[i][j][k]
+                        + Coe._cex[i][j][k] * Coe._chx[i - 1][j][k] + 2 * Coe._sigmay[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+
+                    if (Coe._sigmay[i][j][k] != 0)
                     {
-                        RGB = glm::translate(RGB, glm::vec3(1.0f, 1.0f, 0.0f));
-                        source.setMat4("RGB", RGB);
+                        I[ey111] = (1.0 + Coe._cez[i][j][k] * Coe._chz[i][j][k] + Coe._cez[i][j][k]
+                            * Coe._chz[i][j][k - 1] + Coe._cex[i][j][k] * Coe._chx[i][j][k]
+                            + Coe._cex[i][j][k] * Coe._chx[i - 1][j][k])
+                            / (1.0 + Coe._cez[i][j][k] * Coe._chz[i][j][k] + Coe._cez[i][j][k]
+                                * Coe._chz[i][j][k - 1] + Coe._cex[i][j][k] * Coe._chx[i][j][k]
+                                + Coe._cex[i][j][k] * Coe._chx[i - 1][j][k] + 2 * Coe._sigmay[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+
+                    }
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey112);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez121);;
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez111);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey110);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez120);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chy[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez110);
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chy[i][j][k - 1]); NNZ++;
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex121);
+                    VAL.emplace_back(Coe._cex[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex111);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey211);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex021);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chy[i - 1][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex011);;
+                    VAL.emplace_back(Coe._cex[i][j][k] * Coe._chy[i - 1][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey011);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                }
+            }
+        }
+
+        // Ez equations
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    if (Coe._Jz[i][j][k] == 1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        ex111 = Coe._nodeNum[i][j][k][0];
+
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        ex012 = Coe._nodeNum[i - 1][j][k + 1][0];
+                        ex011 = Coe._nodeNum[i - 1][j][k][0];
+
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        ey102 = Coe._nodeNum[i][j - 1][k + 1][1];
+                        ey101 = Coe._nodeNum[i][j - 1][k][1];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k])
+                            + 2 * Coe._dze[k] / (Coe.s * Coe._eps[i][j][k] * Coe._dxh[i] * Coe._dyh[j] * Rs));
+                        NNZ++;
+
+                        D[ez111] = 1 / (1.0 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k])
+                            + 2 * Coe._dze[k] / (Coe.s * Coe._eps[i][j][k] * Coe._dxh[i] * Coe._dyh[j] * Rs));
+
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex112);
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex012);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex011);
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey112);
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey102);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey101);
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+
+                    }
+                    else if (Coe._Rz[i][j][k] == 1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        ex111 = Coe._nodeNum[i][j][k][0];
+
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        ex012 = Coe._nodeNum[i - 1][j][k + 1][0];
+                        ex011 = Coe._nodeNum[i - 1][j][k][0];
+
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        ey102 = Coe._nodeNum[i][j - 1][k + 1][1];
+                        ey101 = Coe._nodeNum[i][j - 1][k][1];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);;
+                        VAL.emplace_back(1.0 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k])
+                            + 2 * Coe._dze[k] / (Coe.s * Coe._eps[i][j][k] * Coe._dxh[i] * Coe._dyh[j] * Rl));
+                        NNZ++;
+
+                        D[ez111] = 1 / (1.0 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k])
+                            + 2 * Coe._dze[k] / (Coe.s * Coe._eps[i][j][k] * Coe._dxh[i] * Coe._dyh[j] * Rl));
+
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex112);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex111);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex012);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex011);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey112);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey111);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey102);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey101);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+
                     }
                     else
                     {
-                        if ((_eps[i][j][k] != eps0) && (!_Rz[i][j][k]) && (!_Jz[i][j][k]) )
-                        {
-                            RGB = glm::translate(RGB, glm::vec3(137.0f / 255.0f, 137.0f / 255.0f, 137.0f / 255.0f));
-                            source.setMat4("RGB", RGB);
-                        }
-                        else if ((_Jz[i][j][k])) // Excitation port resistor
-                        {
-                            if (_Jz[i + 1][j][k])
-                            {
-                                RGB = glm::translate(RGB, glm::vec3(1.0f, 0.0f, 0.0f));
-                                source.setMat4("RGB", RGB);
-                            }
-                            else
-                            {
-                                RGB = glm::translate(RGB, glm::vec3(137.0f / 255.0f, 137.0f / 255.0f, 137.0f / 255.0f));
-                                source.setMat4("RGB", RGB);
-                            }
-                        }
-                        else if (_Rz[i][j][k]) // Termination port resistor
-                        {
-                            if (_Rz[i + 1][j][k])
-                            {
-                                RGB = glm::translate(RGB,glm::vec3(0.0f, 0.0f, 1.0f));
-                                source.setMat4("RGB",RGB);
-                            }
-                            else if (_eps[i][j+1][k] != eps0)
-                            {
-                                RGB = glm::translate(RGB, glm::vec3(137.0f / 255.0f, 137.0f / 255.0f, 137.0f / 255.0f));
-                                source.setMat4("RGB", RGB);
-                            }
-                            else continue; // Skip drawing the vacuum grid to save memory
-                        }
-                        else continue; // Skip drawing the vacuum grid to save memory
+                        ez111 = Coe._nodeNum[i][j][k][2];
+
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        ex111 = Coe._nodeNum[i][j][k][0];
+
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        ex012 = Coe._nodeNum[i - 1][j][k + 1][0];
+                        ex011 = Coe._nodeNum[i - 1][j][k][0];
+
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        ey102 = Coe._nodeNum[i][j - 1][k + 1][1];
+                        ey101 = Coe._nodeNum[i][j - 1][k][1];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);;
+                        VAL.emplace_back(1.0 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+                        NNZ++;
+
+                        D[ez111] = 1 / (1.0 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex112);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex111);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex012);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex011);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey112);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey111);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey102);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey101);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+
                     }
-
-                    for (size_t count = 0; count < num_probe; ++count) // Probe Location
-                    {
-                        if (i >= _probeCell[count * 6] - 1 && i <= _probeCell[count * 6 + 1] - 1 &&
-                            j >= _probeCell[count * 6 + 2] - 1 && j <= _probeCell[count * 6 + 3] - 1 &&
-                            k >= _probeCell[count * 6 + 4] - 1 && k <= _probeCell[count * 6 + 5] - 1)
-                        {
-                            RGB = glm::translate(RGB, glm::vec3(0.0f, 1.0f, 1.0f));
-                            source.setMat4("RGB", RGB);
-                        }
-                    }
-
-                    model = glm::rotate(model, glm::radians(x_angle), glm::vec3(1.0f, 0.0f, 0.0f));
-                    model = glm::rotate(model, glm::radians(y_angle), glm::vec3(0.0f, 1.0f, 0.0f));
-                    model = glm::translate(model, glm::vec3(lx, lz, ly)); // Flip y - z axis due to RHS of openGL coordinate
-                    model = glm::scale(model, glm::vec3(dx_nrm[i], dz_nrm[k], dy_nrm[j]));
-
-                    source.setMat4("model", model);
-
-                    if (WireView) glDrawElements(GL_LINES, wire_count, GL_UNSIGNED_INT, 0);
-                    else glDrawElements(GL_TRIANGLES, indices_count, GL_UNSIGNED_INT, 0);
-
                 }
-
-                lz = z_start_pos; // Clear the lz buffer
-
             }
-
-            ly = y_start_pos; // Clear the ly buffer
         }
 
-        lx = x_start_pos;
+        // Outmost ABC boundary for Ex
 
-        /* Swap front and back buffers */
-        glfwSwapBuffers(window);
+        for (int i = 0; i < Coe.nx; ++i)
+        {
 
-        /* Poll for and process events */
-        glfwPollEvents();
+            // Edge
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((j == 0) && (k == 0)) // Case (a-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex122 = Coe._nodeNum[i][j + 1][k + 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex122);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((j == 0) && (k == Coe.nz)) // Case (a-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex120 = Coe._nodeNum[i][j + 1][k - 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex120);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((j == Coe.ny) && (k == 0)) // Case (a-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex102 = Coe._nodeNum[i][j - 1][k + 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex102);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((j == Coe.ny) && (k == Coe.nz)) // Case (a-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex100 = Coe._nodeNum[i][j - 1][k - 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex100);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            // Face
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    if (j == 0) // Case (1-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex121 = Coe._nodeNum[i][j + 1][k][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / Coe._dye[j] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex121);
+                        VAL.emplace_back(-1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (j == Coe.ny) // Case (1-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex101 = Coe._nodeNum[i][j - 1][k][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex101);
+                        VAL.emplace_back(-1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            for (int j = 1; j < Coe.ny; j++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (1-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / Coe._dze[k] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex112);
+                        VAL.emplace_back(-1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (k == Coe.nz) // Case (1-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex110 = Coe._nodeNum[i][j][k - 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ex111] = 1 / (1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex110);
+                        VAL.emplace_back(-1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ey
+
+        for (int j = 0; j < Coe.ny; ++j)
+        {
+
+            // Edge
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((i == 0) && (k == 0)) // Case (b-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey212 = Coe._nodeNum[i + 1][j][k + 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey212);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((k == 0) && (i == Coe.nx)) // Case (b-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey012 = Coe._nodeNum[i - 1][j][k + 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey012);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((k == Coe.nz) && (i == 0)) // Case (b-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey210 = Coe._nodeNum[i + 1][j][k - 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey210);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((i == Coe.nx) && (k == Coe.nz)) // Case (b-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey010 = Coe._nodeNum[i - 1][j][k - 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey010);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 1; i < Coe.nx; i++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (2-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / Coe._dze[k] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey112);
+                        VAL.emplace_back(-1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (k == Coe.nz) // Case (2-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey110 = Coe._nodeNum[i][j][k - 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey110);
+                        VAL.emplace_back(-1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 1; k < Coe.nz; k++)
+                {
+                    if (i == 0) // Case (2-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey211 = Coe._nodeNum[i + 1][j][k][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey211);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (i == Coe.nx) // Case (2-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey011 = Coe._nodeNum[i - 1][j][k][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ey111] = 1 / (1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey011);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ez
+
+        for (int k = 0; k < Coe.nz; ++k) {
+
+            // Edge
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
+                    if ((i == 0) && (j == 0)) // Case (c-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez221 = Coe._nodeNum[i + 1][j + 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez221);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if ((i == 0) && (j == Coe.ny)) // Case (c-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez201 = Coe._nodeNum[i + 1][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez201);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if ((i == Coe.nx) && (j == 0)) // Case (c-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez021 = Coe._nodeNum[i - 1][j + 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez021);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if ((i == Coe.nx) && (j == Coe.ny)) // Case (c-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez001 = Coe._nodeNum[i - 1][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez001);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 1; j < Coe.ny; j++) {
+                    if (i == 0) // Case (3-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if (i == Coe.nx) // Case (3-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0));
+
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                }
+            }
+
+            for (int i = 1; i < Coe.nx; i++) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
+                    if (j == 0) // Case (3-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / Coe._dye[j] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);
+                        VAL.emplace_back(-1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if (j == Coe.ny) // Case (3-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        D[ez111] = 1 / (1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0));
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);
+                        VAL.emplace_back(-1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                }
+            }
+        }
     }
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
-    source.Delete();
-    glfwTerminate();
+    else
+    {
+        printf("Constructing Sparse Matrix A ...\n");
+        // Ex equations
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ex111 = Coe._nodeNum[i][j][k][0];
+
+                    ex121 = Coe._nodeNum[i][j + 1][k][0];
+                    ey211 = Coe._nodeNum[i + 1][j][k][1];
+                    ey111 = Coe._nodeNum[i][j][k][1];
+
+                    ex101 = Coe._nodeNum[i][j - 1][k][0];
+                    ey201 = Coe._nodeNum[i + 1][j - 1][k][1];
+                    ey101 = Coe._nodeNum[i][j - 1][k][1];
+
+                    ez211 = Coe._nodeNum[i + 1][j][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+                    ex112 = Coe._nodeNum[i][j][k + 1][0];
+
+                    ez210 = Coe._nodeNum[i + 1][j][k - 1][2];
+                    ez110 = Coe._nodeNum[i][j][k - 1][2];
+                    ex110 = Coe._nodeNum[i][j][k - 1][0];
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                    VAL.emplace_back(1.0 + Coe._cey[i][j][k] * Coe._chy[i][j][k] + Coe._cey[i][j][k]
+                        * Coe._chy[i][j - 1][k] + Coe._cez[i][j][k] * Coe._chz[i][j][k]
+                        + Coe._cez[i][j][k] * Coe._chz[i][j][k - 1] + 2 * Coe._sigmax[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+                    NNZ++;
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex121);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey211);
+                    VAL.emplace_back(Coe._cey[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey111);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex101);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey201);
+                    VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chx[i][j - 1][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ey101);
+                    VAL.emplace_back(Coe._cey[i][j][k] * Coe._chx[i][j - 1][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez211);
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez111);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex112);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez210);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chx[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ez110);
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chx[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex110);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k - 1]); NNZ++;
+
+                }
+            }
+        }
+
+        // Ey equations
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ey111 = Coe._nodeNum[i][j][k][1];
+
+                    ey112 = Coe._nodeNum[i][j][k + 1][1];
+                    ez121 = Coe._nodeNum[i][j + 1][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+
+                    ey110 = Coe._nodeNum[i][j][k - 1][1];
+                    ez120 = Coe._nodeNum[i][j + 1][k - 1][2];
+                    ez110 = Coe._nodeNum[i][j][k - 1][2];
+
+                    ex121 = Coe._nodeNum[i][j + 1][k][0];
+                    ex111 = Coe._nodeNum[i][j][k][0];
+                    ey211 = Coe._nodeNum[i + 1][j][k][1];
+
+                    ex021 = Coe._nodeNum[i - 1][j + 1][k][0];
+                    ex011 = Coe._nodeNum[i - 1][j][k][0];
+                    ey011 = Coe._nodeNum[i - 1][j][k][1];
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                    VAL.emplace_back(1.0 + Coe._cez[i][j][k] * Coe._chz[i][j][k] + Coe._cez[i][j][k]
+                        * Coe._chz[i][j][k - 1] + Coe._cex[i][j][k] * Coe._chx[i][j][k]
+                        + Coe._cex[i][j][k] * Coe._chx[i - 1][j][k] + 2 * Coe._sigmay[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+                    NNZ++;
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey112);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez121);;
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez111);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey110);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chz[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez120);
+                    VAL.emplace_back(-Coe._cez[i][j][k] * Coe._chy[i][j][k - 1]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ez110);
+                    VAL.emplace_back(Coe._cez[i][j][k] * Coe._chy[i][j][k - 1]); NNZ++;
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex121);
+                    VAL.emplace_back(Coe._cex[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex111);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey211);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex021);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chy[i - 1][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ex011);;
+                    VAL.emplace_back(Coe._cex[i][j][k] * Coe._chy[i - 1][j][k]); NNZ++;
+                    IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey011);
+                    VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                }
+            }
+        }
+
+        // Ez equations
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    if (Coe._Jz[i][j][k] == 1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        ex111 = Coe._nodeNum[i][j][k][0];
+
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        ex012 = Coe._nodeNum[i - 1][j][k + 1][0];
+                        ex011 = Coe._nodeNum[i - 1][j][k][0];
+
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        ey102 = Coe._nodeNum[i][j - 1][k + 1][1];
+                        ey101 = Coe._nodeNum[i][j - 1][k][1];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k])
+                            + 2 * Coe._dze[k] / (Coe.s * Coe._eps[i][j][k] * Coe._dxh[i] * Coe._dyh[j] * Rs));
+                        NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex112);
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex012);
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex011);
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey112);
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey102);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey101);
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+
+                    }
+                    else if (Coe._Rz[i][j][k] == 1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        ex111 = Coe._nodeNum[i][j][k][0];
+
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        ex012 = Coe._nodeNum[i - 1][j][k + 1][0];
+                        ex011 = Coe._nodeNum[i - 1][j][k][0];
+
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        ey102 = Coe._nodeNum[i][j - 1][k + 1][1];
+                        ey101 = Coe._nodeNum[i][j - 1][k][1];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);;
+                        VAL.emplace_back(1 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k])
+                            + 2 * Coe._dze[k] / (Coe.s * Coe._eps[i][j][k] * Coe._dxh[i] * Coe._dyh[j] * Rl));
+                        NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex112);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex111);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex012);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex011);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey112);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey111);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey102);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey101);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+
+                    }
+                    else
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        ex111 = Coe._nodeNum[i][j][k][0];
+
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        ex012 = Coe._nodeNum[i - 1][j][k + 1][0];
+                        ex011 = Coe._nodeNum[i - 1][j][k][0];
+
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        ey102 = Coe._nodeNum[i][j - 1][k + 1][1];
+                        ey101 = Coe._nodeNum[i][j - 1][k][1];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);;
+                        VAL.emplace_back(1 + Coe._cex[i][j][k] * Coe._chx[i][j][k] + Coe._cex[i][j][k]
+                            * Coe._chx[i - 1][j][k] + Coe._cey[i][j][k] * Coe._chy[i][j][k]
+                            + Coe._cey[i][j][k] * Coe._chy[i][j - 1][k] + 2 * Coe._sigmaz[i][j][k] / (Coe.s * Coe._eps[i][j][k]));
+                        NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex112);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex111);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chx[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex012);;
+                        VAL.emplace_back(-Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ex011);;
+                        VAL.emplace_back(Coe._cex[i][j][k] * Coe._chz[i - 1][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey112);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey111);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j][k]); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey102);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ey101);;
+                        VAL.emplace_back(Coe._cey[i][j][k] * Coe._chz[i][j - 1][k]); NNZ++;
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);;
+                        VAL.emplace_back(-Coe._cey[i][j][k] * Coe._chy[i][j - 1][k]); NNZ++;
+
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ex
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+
+            // Edge
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((j == 0) && (k == 0)) // Case (a-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex122 = Coe._nodeNum[i][j + 1][k + 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex122);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((j == 0) && (k == Coe.nz)) // Case (a-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex120 = Coe._nodeNum[i][j + 1][k - 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex120);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((j == Coe.ny) && (k == 0)) // Case (a-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex102 = Coe._nodeNum[i][j - 1][k + 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex102);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((j == Coe.ny) && (k == Coe.nz)) // Case (a-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex100 = Coe._nodeNum[i][j - 1][k - 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex100);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dye[j - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            // Face
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    if (j == 0) // Case (1-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex121 = Coe._nodeNum[i][j + 1][k][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex121);
+                        VAL.emplace_back(-1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (j == Coe.ny) // Case (1-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex101 = Coe._nodeNum[i][j - 1][k][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex101);
+                        VAL.emplace_back(-1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            for (int j = 1; j < Coe.ny; j++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (1-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex112);
+                        VAL.emplace_back(-1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (k == Coe.nz) // Case (1-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex110 = Coe._nodeNum[i][j][k - 1][0];
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex111);
+                        VAL.emplace_back(1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ex111 }); JA.emplace_back(ex110);
+                        VAL.emplace_back(-1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ey
+        for (int j = 0; j < Coe.ny; ++j)
+        {
+
+            // Edge
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((i == 0) && (k == 0)) // Case (b-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey212 = Coe._nodeNum[i + 1][j][k + 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey212);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((k == 0) && (i == Coe.nx)) // Case (b-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey012 = Coe._nodeNum[i - 1][j][k + 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey012);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((k == Coe.nz) && (i == 0)) // Case (b-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey210 = Coe._nodeNum[i + 1][j][k - 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey210);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if ((i == Coe.nx) && (k == Coe.nz)) // Case (b-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey010 = Coe._nodeNum[i - 1][j][k - 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey010);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dze[k - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 1; i < Coe.nx; i++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (2-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey112);
+                        VAL.emplace_back(-1.0 / Coe._dze[k] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (k == Coe.nz) // Case (2-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey110 = Coe._nodeNum[i][j][k - 1][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey110);
+                        VAL.emplace_back(-1.0 / Coe._dze[k - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 1; k < Coe.nz; k++)
+                {
+                    if (i == 0) // Case (2-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey211 = Coe._nodeNum[i + 1][j][k][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey211);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                    else if (i == Coe.nx) // Case (2-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey011 = Coe._nodeNum[i - 1][j][k][1];
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ey111 }); JA.emplace_back(ey011);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ez
+        for (int k = 0; k < Coe.nz; ++k) {
+
+            // Edge
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
+                    if ((i == 0) && (j == 0)) // Case (c-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez221 = Coe._nodeNum[i + 1][j + 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez221);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if ((i == 0) && (j == Coe.ny)) // Case (c-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez201 = Coe._nodeNum[i + 1][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez201);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if ((i == Coe.nx) && (j == 0)) // Case (c-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez021 = Coe._nodeNum[i - 1][j + 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez021);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if ((i == Coe.nx) && (j == Coe.ny)) // Case (c-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez001 = Coe._nodeNum[i - 1][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez001);
+                        VAL.emplace_back(-1.0 / (sqrt(pow(Coe._dxe[i - 1], 2) + pow(Coe._dye[j - 1], 2))) + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx) {
+                for (int j = 1; j < Coe.ny; j++) {
+                    if (i == 0) // Case (3-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez211);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if (i == Coe.nx) // Case (3-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez011);
+                        VAL.emplace_back(-1.0 / Coe._dxe[i - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                }
+            }
+
+            for (int i = 1; i < Coe.nx; i++) {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny) {
+                    if (j == 0) // Case (3-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez121);
+                        VAL.emplace_back(-1.0 / Coe._dye[j] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                    else if (j == Coe.ny) // Case (3-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez111);
+                        VAL.emplace_back(1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                        IA.push_back({ NNZ,ez111 }); JA.emplace_back(ez101);
+                        VAL.emplace_back(-1.0 / Coe._dye[j - 1] + Coe.s / (4.0 * v0)); NNZ++;
+
+                    }
+                }
+            }
+        }
+
+
+    } // CUDA_AWARE
+
 
 }
 
-void LFDTD_Coe::Coe_SET()
+void LFDTD::Solver_Select()
 {
-    _nodeNum.resize(boost::extents[nx + 1][ny + 1][nz + 1][3]);
 
-    _cex.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _cey.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _cez.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
+    int Solver_select;
+    int Precon_select;
 
-    _chx.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _chy.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
-    _chz.resize(boost::extents[nx + 1][ny + 1][nz + 1]);
+    std::cout << "Please select the solver: [1] - PARDISO, [2]- cuSPARSE, [3] - CUDA RT, [4] - CUDA RT Expanded Kernel (Testing)" << std::endl;
+    std::cin >> Solver_select;
 
-    _waveform = std::make_unique<double[]>(tStep);
-
-    _hx.resize(boost::extents[nx][ny][nz]);
-    _hy.resize(boost::extents[nx][ny][nz]);
-    _hz.resize(boost::extents[nx][ny][nz]);
-    _sumHx.resize(boost::extents[nx][ny][nz]);
-    _sumHy.resize(boost::extents[nx][ny][nz]);
-    _sumHz.resize(boost::extents[nx][ny][nz]);
-
-
-    for (int i = 0; i < nx + 1; ++i) {
-        for (int j = 0; j < ny + 1; ++j) {
-            for (int k = 0; k < nz + 1; ++k) {
-                _cex[i][j][k] = 2 / (s * _eps[i][j][k] * _dxh[i]);
-                _cey[i][j][k] = 2 / (s * _eps[i][j][k] * _dyh[j]);
-                _cez[i][j][k] = 2 / (s * _eps[i][j][k] * _dzh[k]);
-                _chx[i][j][k] = 2 / (s * _mu[i][j][k] * _dxe[i]);
-                _chy[i][j][k] = 2 / (s * _mu[i][j][k] * _dye[j]);
-                _chz[i][j][k] = 2 / (s * _mu[i][j][k] * _dze[k]);
-            }
-        }
-    }
-
-
-    Rs = R0 * (_jCellIndex[1] - _jCellIndex[0] + 1) * (_jCellIndex[3] - _jCellIndex[2] + 1) / (_jCellIndex[5] - _jCellIndex[4] + 1); // Source Resistance
-    if (num_Resistor)
-    {
-        Rl = R0 * (_jResistorIndex[1] - _jResistorIndex[0] + 1) * (_jResistorIndex[3] - _jResistorIndex[2] + 1) / (_jResistorIndex[5] - _jResistorIndex[4] + 1); // Load Resistance
-    }
-
-    switch (pulseType) // Waveform Definition
+    switch (Solver_select)
     {
     case 1:
-        for (int i = 0; i < tStep; ++i) {
-            _waveform[i] = pow(exp(1), (-pow(((dt * (i + 1) - tc) / td), 2)));
-        }
+        _Solver = _PARDISO;
         break;
-
+    case 2:
+        _Solver = _cuSPARSE;
+        break;
     case 3:
-        for (int i = 0; i < tStep; ++i)
-        {
-            double coe = -(dt * (i + 1) - tc) * (dt * (i + 1) - tc) / (2 * (tc * tc / 32));
-            _waveform[i] = sin(2 * pi * fc * (dt * (i + 1) - tc)) * pow(exp(1), coe);
-        }
+        _Solver = _CUDA;
         break;
-
+    case 4:
+        _Solver = _CUDA_Expanded;
+        break;
     default:
+        std::cerr << "No valid solver matches input selection!" << std::endl;;
+        std::cerr << "Program exiting..." << std::endl;;
+        throw - 1;
         break;
-    };
+    }
 
-    for (int i = 0; i < nx + 1; ++i) {
-        for (int j = 0; j < ny + 1; ++j) {
-            for (int k = 0; k < nz + 1; ++k) {
+    if (_Solver)
+    {
+        std::cout << "Please select the preconditioner: [1] - None, [2] - Jacobi, [3] - Laguerre" << std::endl;
+        std::cin >> Precon_select;
+        switch (Precon_select)
+        {
+        case 1:
+            _M = None;
+            break;
+        case 2:
+            _M = Jacobi;
+            break;
+        case 3:
+            _M = Laguerre;
+            break;
+        default:
+            std::cout << "No valid preconditioner matches input selection!" << std::endl;
+            std::cout << "Default to Jacobi Preconditioner for solving." << std::endl;
+            _M = Jacobi;
+            break;
+        }
+    }
+}
 
-                if (i != nx)
+void LFDTD::COO2CSR()
+{
+    ia = std::make_unique<int[]>(Nnode + 1);
+    a = std::make_unique<double[]>(NNZ);
+    ja = std::make_unique<int[]>(NNZ);
+
+    std::vector<std::pair<int, int>> JA_Group;
+    std::vector<int> JA_Sorted_Idx;
+
+    std::sort(IA.begin(), IA.end(), cmp);
+
+    if (_Solver)
+    {
+        for (int i = 0; i < NNZ - 1; ++i)
+        {
+
+            if (IA[i].second == IA[i + 1].second)
+            {
+                JA_Group.push_back({ IA[i].first,JA[IA[i].first] });
+            }
+            else
+            {
+                JA_Group.push_back({ IA[i].first, JA[IA[i].first] });
+                std::sort(JA_Group.begin(), JA_Group.end(), cmp);
+
+                for (auto& ele : JA_Group)
                 {
-                    _nodeNum[i][j][k][0] = Nnode;
-                    Nnode++;
+                    JA_Sorted_Idx.push_back(ele.first);
                 }
 
-                if (j != ny)
-                {
-                    _nodeNum[i][j][k][1] = Nnode;
-                    Nnode++;
-                }
-
-                if (k != nz)
-                {
-                    _nodeNum[i][j][k][2] = Nnode;
-                    Nnode++;
-                }
+                JA_Group.clear();
 
             }
+
+            ia[IA[i].second + 1]++;
+        }
+
+        // Account for the last element
+        JA_Group.push_back({ IA[NNZ - 1].first, JA[IA[NNZ - 1].first] });
+        std::sort(JA_Group.begin(), JA_Group.end(), cmp);
+
+        for (auto& ele : JA_Group)
+        {
+            JA_Sorted_Idx.push_back(ele.first);
+        }
+
+        JA_Group.clear();
+        ia[IA[NNZ - 1].second + 1]++;
+
+        // 0-index in row column
+
+        for (int i = 0; i < Nnode; ++i)
+        {
+            ia[i + 1] += ia[i];
+        }
+
+        for (int i = 0; i < NNZ; ++i)
+        {
+            ja[i] = JA[JA_Sorted_Idx[i]];
+            a[i] = VAL[JA_Sorted_Idx[i]];
+        }
+
+        /* Create CUBLAS context */
+        checkCudaErrors(cublasCreate(&cublasHandle));
+
+        /* Create CUSPARSE context */
+        checkCudaErrors(cusparseCreate(&cusparseHandle));
+
+        /* Description of the A matrix */
+        checkCudaErrors(cusparseCreateMatDescr(&descr));
+
+        /* Allocate required memory */
+        checkCudaErrors(cudaMalloc((void**)&d_col, NNZ * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_row, (Nnode + 1) * sizeof(int)));
+        checkCudaErrors(cudaMalloc((void**)&d_val, NNZ * sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_x, Nnode * sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_r, Nnode * sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_r0, Nnode * sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_p, Nnode * sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_AP, Nnode * sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_AS, Nnode * sizeof(double)));
+
+        /* Wrap raw data into cuSPARSE generic API objects - Dense Vector on RHS */
+        checkCudaErrors(cusparseCreateDnVec(&vecR, Nnode, d_r, CUDA_R_64F));
+        checkCudaErrors(cusparseCreateDnVec(&vecP, Nnode, d_p, CUDA_R_64F));
+        checkCudaErrors(cusparseCreateDnVec(&vecAP, Nnode, d_AP, CUDA_R_64F));
+        checkCudaErrors(cusparseCreateDnVec(&vecAS, Nnode, d_AS, CUDA_R_64F));
+
+        /* Initialize matrix data */
+        checkCudaErrors(cudaMemcpy(
+            d_col, ja.get(), NNZ * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(
+            d_row, ia.get(), (Nnode + 1) * sizeof(int), cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(
+            d_val, a.get(), NNZ * sizeof(double), cudaMemcpyHostToDevice));
+
+        /* Create CSR A matrix on GPU */
+        checkCudaErrors(cusparseCreateCsr(
+            &matA, Nnode, Nnode, NNZ, d_row, d_col, d_val, CUSPARSE_INDEX_32I,
+            CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+
+        /* Initialize host & device variable for kernel based CUDA implementation */
+
+        h_nrmr0 = std::make_unique<double>();
+        h_nrmr = std::make_unique<double>();
+        h_APr0 = std::make_unique<double>();
+        h_ASAS = std::make_unique<double>();
+        h_ASsj = std::make_unique<double>();
+        h_rjjr0 = std::make_unique<double>();
+
+        checkCudaErrors(cudaMalloc((void**)&d_nrmr0, sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_nrmr, sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_APr0, sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_ASAS, sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_ASsj, sizeof(double)));
+        checkCudaErrors(cudaMalloc((void**)&d_rjjr0, sizeof(double)));
+
+        if (_M == None)
+        {
+            printf("Solving Ax=b without Preconditioner M\n");
+
+            /* Allocate workspace for cuSPARSE */
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+                vecP, &doublezero, vecAP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeAP));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeAP, bufferSizeAP));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+                vecR, &doublezero, vecAS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeAS));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeAS, bufferSizeAS));
+        }
+        else if (_M == Jacobi)
+        {
+
+            printf("Solving Ax=b with Jacobi Preconditioner D\n");
+
+            /* Allocate required memory */
+            checkCudaErrors(cudaMalloc((void**)&d_col_m, Nnode * sizeof(int)));
+            checkCudaErrors(cudaMalloc((void**)&d_row_m, (Nnode + 1) * sizeof(int)));
+            checkCudaErrors(cudaMalloc((void**)&d_val_m, Nnode * sizeof(double)));
+
+            /* Initialize Pre-conditioner matrix data */
+            checkCudaErrors(cudaMemcpy(
+                d_col_m, ja_M.get(), Nnode * sizeof(int), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(
+                d_row_m, ia_M.get(), (Nnode + 1) * sizeof(int), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(
+                d_val_m, D.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+
+            checkCudaErrors(cudaMalloc((void**)&d_MP, Nnode * sizeof(double)));
+            checkCudaErrors(cusparseCreateDnVec(&vecMP, Nnode, d_MP, CUDA_R_64F));
+
+            checkCudaErrors(cudaMalloc((void**)&d_MS, Nnode * sizeof(double)));
+            checkCudaErrors(cusparseCreateDnVec(&vecMS, Nnode, d_MS, CUDA_R_64F));
+
+            /* Create CSR Pre-conditioner M matrix on GPU */
+            checkCudaErrors(cusparseCreateCsr(
+                &matM, Nnode, Nnode, Nnode, d_row_m, d_col_m, d_val_m, CUSPARSE_INDEX_32I,
+                CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+                vecP, &doublezero, vecMP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeMP));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeMP, bufferSizeMP));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+                vecMP, &doublezero, vecAP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeAP));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeAP, bufferSizeAP));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+                vecR, &doublezero, vecMS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeMS));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeMS, bufferSizeMS));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+                vecMS, &doublezero, vecAS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeAS));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeAS, bufferSizeAS));
+        }
+        else if (_M == Laguerre)
+        {
+
+            printf("Solving Ax=b with Proposed Preconditioner I\n");
+
+            /* Allocate required memory */
+            checkCudaErrors(cudaMalloc((void**)&d_col_m, Nnode * sizeof(int)));
+            checkCudaErrors(cudaMalloc((void**)&d_row_m, (Nnode + 1) * sizeof(int)));
+            checkCudaErrors(cudaMalloc((void**)&d_val_m, Nnode * sizeof(double)));
+
+            /* Initialize Pre-conditioner matrix data */
+            checkCudaErrors(cudaMemcpy(
+                d_col_m, ja_M.get(), Nnode * sizeof(int), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(
+                d_row_m, ia_M.get(), (Nnode + 1) * sizeof(int), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(
+                d_val_m, I.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+
+            checkCudaErrors(cudaMalloc((void**)&d_MP, Nnode * sizeof(double)));
+            checkCudaErrors(cusparseCreateDnVec(&vecMP, Nnode, d_MP, CUDA_R_64F));
+
+            checkCudaErrors(cudaMalloc((void**)&d_MS, Nnode * sizeof(double)));
+            checkCudaErrors(cusparseCreateDnVec(&vecMS, Nnode, d_MS, CUDA_R_64F));
+
+            /* Create CSR Pre-conditioner M matrix on GPU */
+            checkCudaErrors(cusparseCreateCsr(
+                &matM, Nnode, Nnode, Nnode, d_row_m, d_col_m, d_val_m, CUSPARSE_INDEX_32I,
+                CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+                vecP, &doublezero, vecMP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeMP));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeMP, bufferSizeMP));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+                vecMP, &doublezero, vecAP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeAP));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeAP, bufferSizeAP));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+                vecR, &doublezero, vecMS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeMS));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeMS, bufferSizeMS));
+
+            checkCudaErrors(cusparseSpMV_bufferSize(
+                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+                vecMS, &doublezero, vecAS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+                &bufferSizeAS));
+            checkCudaErrors(cudaMalloc(&d_bufferSizeAS, bufferSizeAS));
+        }
+
+    }
+    else
+    {
+        for (int i = 0; i < NNZ - 1; ++i)
+        {
+
+            if (IA[i].second == IA[i + 1].second)
+            {
+                JA_Group.push_back({ IA[i].first,JA[IA[i].first] });
+            }
+            else
+            {
+                JA_Group.push_back({ IA[i].first, JA[IA[i].first] });
+                std::sort(JA_Group.begin(), JA_Group.end(), cmp);
+
+                for (auto& ele : JA_Group)
+                {
+                    JA_Sorted_Idx.push_back(ele.first);
+                }
+
+                JA_Group.clear();
+
+            }
+
+            ia[IA[i].second + 1]++;
+        }
+
+        // Account for the last element
+        JA_Group.push_back({ IA[NNZ - 1].first, JA[IA[NNZ - 1].first] });
+        std::sort(JA_Group.begin(), JA_Group.end(), cmp);
+
+        for (auto& ele : JA_Group)
+        {
+            JA_Sorted_Idx.push_back(ele.first);
+        }
+
+        JA_Group.clear();
+        ia[IA[NNZ - 1].second + 1]++;
+
+        // 1-index in row column
+        ia[0] = 1;
+
+        for (int i = 0; i < Nnode; ++i)
+        {
+            ia[i + 1] += ia[i];
+        }
+
+        for (int i = 0; i < NNZ; ++i)
+        {
+            ja[i] = JA[JA_Sorted_Idx[i]] + 1;
+            a[i] = VAL[JA_Sorted_Idx[i]];
         }
     }
 
-    printf("Laguerre-FDTD Meshing completed with total %ld nodes.\n\n", Nnode);
 
+    IA.clear();
+    JA.clear();
+    VAL.clear();
+    JA_Sorted_Idx.clear();
+
+    printf("Sparse Matrix A Successfully Populated with CSR Format!\n");
+
+
+}
+
+void LFDTD::CSR_Expanded()
+{
+    a_expanded = std::make_unique<double[]>(Nnode * 16);
+    ja_expanded = std::make_unique<int[]>(Nnode * 16);
+
+    int count = 0;
+    for (int i = 0; i < Nnode; ++i)
+    {
+        for (int j = ia[i]; j < ia[i + 1]; ++j)
+        {
+            ja_expanded[i * 16 + count] = ja[j];
+            a_expanded[i * 16 + count] = a[j];
+            ++count;
+        }
+        count = 0;
+    }
+
+}
+
+void LFDTD::BiCGSTABL_Solver()
+{
+
+
+    /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
+    checkCudaErrors(cudaMemcpy(d_r, b.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_x, x.get(), Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    /*2: Set \tilde{r0} = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_r0, 1));
+    /*2: Set p0 = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_p, 1));
+
+    /* Calculate initial residual nrmr0 */
+    checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr0));
+    checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+    iter = 0;
+
+    while (iter <= maxit)
+    {
+        if (iter > 0)
+        {
+            /* Beta = (r_{j+1}, \tilde{r0})/(r_j, \tilde{r0}) X (alpha_j/W_j) */
+            beta = (rjjr0 / rjr0) * (alpha / omega);
+
+            /* P_j = P_j - W_j*AP_j */
+            checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AP, 1, d_p, 1));
+            /* P_j = b_j * P_j */
+            checkCudaErrors(cublasDscal(cublasHandle, Nnode, &beta, d_p, 1));
+            /* P_{j+1} = r_{j+1} + P_j */
+            checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &doubleone, d_r, 1, d_p, 1));
+
+        }
+
+        rjr0 = rjjr0;
+
+        /* Vec_{AP_j} = A*P_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecP, &doublezero, vecAP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAP));
+
+        /* (AP_j, r0) */
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AP, 1, d_r0, 1, &APr0));
+
+        alpha = rjr0 / APr0;
+        nalpha = -alpha;
+
+        /* r_j = r_j - alpha*AP_j */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nalpha, d_AP, 1, d_r, 1));
+        /* x_{j+1} = x_j + alpha*P_j */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &alpha, d_p, 1, d_x, 1));
+
+        // Check convergence
+        checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+        if (nrmr / nrmr0 < tol)
+        {
+            break;
+        }
+
+        /* Vec_{AS_j} = A*r_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecR, &doublezero, vecAS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAS));
+
+        /* (AS_j, S_j(r_j) ) */
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_r, 1, &ASsj));
+        /* (AS_j, AS_j ) */
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_AS, 1, &ASAS));
+
+        /* omega = (AS_j, S_j(r_j) )/(AS_j, AS_j ) */
+        omega = ASsj / ASAS;
+        nomega = -omega;
+
+        /* x_{j+1} = x_j + omega*S_j(r_j) */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &omega, d_r, 1, d_x, 1));
+        /* r_{j+1} = S_j(r_j) - omega*AS_j */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AS, 1, d_r, 1));
+
+        // Check convergence
+        checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+        if (nrmr / nrmr0 < tol)
+        {
+            break;
+        }
+
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+        iter++;
+    }
+
+    FLAG = (nrmr / nrmr0 <= tol) ? 0 : 1;
+
+    if (FLAG == 0)
+    {
+        //printf("Number of iteration to converge is %d\n",iter);
+        checkCudaErrors(cudaMemcpy(
+            x.get(), d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+    }
+    else
+    {
+        const char* no_convergence = "No Convergence reached!\n";
+        printf("Convergence FLAG is: %d, with residual of: %e\n", FLAG, nrmr);
+        throw no_convergence;
+    }
+
+}
+void LFDTD::BiCGSTABL_M_Solver()
+{
+
+    /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
+    checkCudaErrors(cublasDscal(cublasHandle, Nnode, &doublezero, d_x, 1));
+    /*2: Set \tilde{r0} = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_r0, 1));
+    /*2: Set p0 = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_p, 1));
+
+    /* Calculate initial residual nrmr0 */
+    checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr0));
+    checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+    iter = 0;
+
+    while (iter <= maxit)
+    {
+        if (iter > 0)
+        {
+            /* Beta = (r_{j+1}, \tilde{r0})/(r_j, \tilde{r0}) X (alpha_j/W_j) */
+            beta = (rjjr0 / rjr0) * (alpha / omega);
+
+            /* P_j = P_j - W_j*AP_j */
+            checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AP, 1, d_p, 1));
+            /* P_j = b_j * P_j */
+            checkCudaErrors(cublasDscal(cublasHandle, Nnode, &beta, d_p, 1));
+            /* P_{j+1} = r_{j+1} + P_j */
+            checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &doubleone, d_r, 1, d_p, 1));
+
+        }
+
+        rjr0 = rjjr0;
+
+        /* Vec_{MP_j} = inv(M)*P_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+            vecP, &doublezero, vecMP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeMP));
+
+        /* Vec_{AP_j} = A*MP_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecMP, &doublezero, vecAP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAP));
+
+        /* (AP_j, r0) */
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AP, 1, d_r0, 1, &APr0));
+
+        alpha = rjr0 / APr0;
+        nalpha = -alpha;
+
+        /* r_j = r_j - alpha*AP_j */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nalpha, d_AP, 1, d_r, 1));
+        /* x_{j+1} = x_j + alpha*MP_j */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &alpha, d_MP, 1, d_x, 1));
+
+        // Check convergence
+        checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+        if (nrmr / nrmr0 < tol)
+        {
+            break;
+        }
+
+        /* Vec_{MS_j} = inv(M)*r_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+            vecR, &doublezero, vecMS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeMS));
+
+        /* Vec_{AS_j} = A*MS_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecMS, &doublezero, vecAS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAS));
+
+        /* (AS_j, S_j(r_j) ) */
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_r, 1, &ASsj));
+        /* (AS_j, AS_j ) */
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_AS, 1, &ASAS));
+
+        /* omega = (AS_j, S_j(r_j) )/(AS_j, AS_j ) */
+        omega = ASsj / ASAS;
+        nomega = -omega;
+
+        /* x_{j+1} = x_j + omega*MS_j(Mr_j) */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &omega, d_MS, 1, d_x, 1));
+        /* r_{j+1} = S_j(r_j) - omega*AS_j */
+        checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AS, 1, d_r, 1));
+
+        // Check convergence
+        checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+        if (nrmr / nrmr0 < tol)
+        {
+            break;
+        }
+
+        checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+        iter++;
+    }
+
+    FLAG = (nrmr / nrmr0 <= tol) ? 0 : 1;
+
+    if (FLAG == 0)
+    {
+        Convergence.emplace_back(iter);
+        // printf("Number of iteration to converge is %d\n",iter);
+        checkCudaErrors(cudaMemcpy(
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+    }
+    else
+    {
+        Convergence.emplace_back(iter);
+        const char* no_convergence = "No Convergence reached!\n";
+        printf("Convergence FLAG is: %d, with residual of: %e\n", FLAG, nrmr);
+        throw no_convergence;
+    }
+
+}
+/* spMV for A* b uses cuSPARSE Library - Ideal for 30 series GPU model (Test on 3080TI) */
+void LFDTD::BiCGSTABL_M_Kernel_Solver()
+{
+    dim3 grid(Nnode / (8 * warp) + 1, 1, 1);
+    dim3 block(8 * warp, 1, 1);
+
+    /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
+
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
+
+    checkCudaErrors(cudaMemset(d_x, 0, Nnode * sizeof(double)));
+
+    checkCudaErrors(cublasDscal(cublasHandle, Nnode, &doublezero, d_x, 1));
+
+    /*2: Set \tilde{r0} = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_r0, 1));
+    /*2: Set p0 = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_p, 1));
+
+    /* Calculate initial residual nrmr0 */
+
+    cuBLAS::nrm2(grid, block, d_r, h_nrmr0.get(), d_nrmr0);
+    // checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr0));
+    cuBLAS::dot_product(grid, block, d_r0, d_r, h_rjjr0.get(), d_rjjr0);
+    // checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+    iter = 0;
+
+    while (iter < maxit)
+    {
+        if (iter > 0)
+        {
+            /* Beta = (r_{j+1}, \tilde{r0})/(r_j, \tilde{r0}) X (alpha_j/W_j) */
+            beta = ((*h_rjjr0) / rjr0) * (alpha / omega);
+
+            /* P_j = P_j - W_j*AP_j */
+            cuBLAS::axpy(grid, block, d_AP, d_p, nomega);
+            //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AP, 1, d_p, 1));
+
+            /* P_j = b_j * P_j */
+            checkCudaErrors(cublasDscal(cublasHandle, Nnode, &beta, d_p, 1));
+
+            /* P_{j+1} = r_{j+1} + P_j */
+            cuBLAS::axpy(grid, block, d_r, d_p, doubleone);
+            //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &doubleone, d_r, 1, d_p, 1));
+
+        }
+
+        rjr0 = (*h_rjjr0);
+
+        /* Vec_{MP_j} = inv(M)*P_j */
+        cuBLAS::spMV_M(grid, block, d_val_m, d_p, d_MP);
+
+        /*
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+            vecP, &doublezero, vecMP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeMP));
+        */
+
+        /* Vec_{AP_j} = A*MP_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecMP, &doublezero, vecAP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAP));
+
+        /* (AP_j, r0) */
+        cuBLAS::dot_product(grid, block, d_AP, d_r0, h_APr0.get(), d_APr0);
+        // checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AP, 1, d_r0, 1, &APr0));
+
+        alpha = rjr0 / (*h_APr0);
+        nalpha = -alpha;
+
+        /* r_j = r_j - alpha*AP_j */
+        cuBLAS::axpy(grid, block, d_AP, d_r, nalpha);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nalpha, d_AP, 1, d_r, 1));
+
+        /* x_{j+1} = x_j + alpha*MP_j */
+        cuBLAS::axpy(grid, block, d_MP, d_x, alpha);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &alpha, d_MP, 1, d_x, 1));
+
+        // Check convergence
+        cuBLAS::nrm2(grid, block, d_r, h_nrmr.get(), d_nrmr);
+        // checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+
+
+        if ((*h_nrmr) / (*h_nrmr0) < tol)
+        {
+            break;
+        }
+
+        /* Vec_{MS_j} = inv(M)*r_j */
+
+        cuBLAS::spMV_M(grid, block, d_val_m, d_r, d_MS);
+
+        /*
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+            vecR, &doublezero, vecMS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeMS));
+        */
+
+        /* Vec_{AS_j} = A*MS_j */
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecMS, &doublezero, vecAS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAS));
+
+        /* (AS_j, S_j(r_j) ) */
+        cuBLAS::dot_product(grid, block, d_AS, d_r, h_ASsj.get(), d_ASsj);
+        //checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_r, 1, &ASsj));
+        /* (AS_j, AS_j ) */
+        cuBLAS::dot_product(grid, block, d_AS, d_AS, h_ASAS.get(), d_ASAS);
+        //checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_AS, 1, &ASAS));
+
+        /* omega = (AS_j, S_j(r_j) )/(AS_j, AS_j ) */
+        omega = (*h_ASsj) / (*h_ASAS);
+        nomega = -omega;
+
+        /* x_{j+1} = x_j + omega*MS_j(Mr_j) */
+        cuBLAS::axpy(grid, block, d_MS, d_x, omega);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &omega, d_MS, 1, d_x, 1));
+        /* r_{j+1} = S_j(r_j) - omega*AS_j */
+        cuBLAS::axpy(grid, block, d_AS, d_r, nomega);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AS, 1, d_r, 1));
+
+        // Check convergence
+        cuBLAS::nrm2(grid, block, d_r, h_nrmr.get(), d_nrmr);
+        //checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+
+        if ((*h_nrmr) / (*h_nrmr0) < tol)
+        {
+            break;
+        }
+
+        cuBLAS::dot_product(grid, block, d_r0, d_r, h_rjjr0.get(), d_rjjr0);
+        // checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+        iter++;
+    }
+
+    FLAG = ((*h_nrmr) / (*h_nrmr0) <= tol) ? 0 : 1;
+
+    if (FLAG == 0)
+    {
+        Convergence.emplace_back(iter);
+        // printf("Number of iteration to converge is %d\n",iter);
+
+        checkCudaErrors(cudaMemcpy(
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+
+    }
+    else
+    {
+        Convergence.emplace_back(iter);
+        const char* no_convergence = "No Convergence reached!\n";
+        printf("Convergence FLAG is: %d, with residual of: %e\n", FLAG, (*h_nrmr) / (*h_nrmr0));
+        throw no_convergence;
+    }
+
+}
+/* Fully expanded custom CUDA runtime kernel solver - Performs best on 40 series GPU model (Test on 4090) */
+void LFDTD::BiCGSTABL_M_Expanded_Kernel_Solver()
+{
+    dim3 grid(Nnode / (8 * warp) + 1, 1, 1);
+    dim3 block(8 * warp, 1, 1);
+
+    dim3 grid_expanded(Nnode / (2 * 16) + 1, 1, 1);
+    dim3 block_expanded(16 * warp, 1, 1);
+
+    /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
+
+    checkCudaErrors(cudaMemcpy(d_r, b_pinned, Nnode * sizeof(double), cudaMemcpyHostToDevice));
+
+    checkCudaErrors(cudaMemset(d_x, 0, Nnode * sizeof(double)));
+
+    checkCudaErrors(cublasDscal(cublasHandle, Nnode, &doublezero, d_x, 1));
+
+    /*2: Set \tilde{r0} = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_r0, 1));
+    /*2: Set p0 = r0 */
+    checkCudaErrors(cublasDcopy(cublasHandle, Nnode, d_r, 1, d_p, 1));
+
+    /* Calculate initial residual nrmr0 */
+
+    cuBLAS::nrm2(grid, block, d_r, h_nrmr0.get(), d_nrmr0);
+    // checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr0));
+    cuBLAS::dot_product(grid, block, d_r0, d_r, h_rjjr0.get(), d_rjjr0);
+    // checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+    iter = 0;
+
+    while (iter < maxit)
+    {
+        if (iter > 0)
+        {
+            /* Beta = (r_{j+1}, \tilde{r0})/(r_j, \tilde{r0}) X (alpha_j/W_j) */
+            beta = ((*h_rjjr0) / rjr0) * (alpha / omega);
+
+            /* P_j = P_j - W_j*AP_j */
+            cuBLAS::axpy(grid, block, d_AP, d_p, nomega);
+            //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AP, 1, d_p, 1));
+
+            /* P_j = b_j * P_j */
+            checkCudaErrors(cublasDscal(cublasHandle, Nnode, &beta, d_p, 1));
+
+            /* P_{j+1} = r_{j+1} + P_j */
+            cuBLAS::axpy(grid, block, d_r, d_p, doubleone);
+            //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &doubleone, d_r, 1, d_p, 1));
+
+        }
+
+        rjr0 = (*h_rjjr0);
+
+        /* Vec_{MP_j} = inv(M)*P_j */
+        cuBLAS::spMV_M(grid, block, d_val_m, d_p, d_MP);
+
+        /*
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+            vecP, &doublezero, vecMP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeMP));
+        */
+
+        /* Vec_{AP_j} = A*MP_j */
+
+        cuBLAS::spMV(grid_expanded, block_expanded, d_a_expanded, d_ja_expanded, d_MP, spMV_buffer, d_AP);
+
+        /*
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecMP, &doublezero, vecAP, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAP));
+        */
+
+        /* (AP_j, r0) */
+        cuBLAS::dot_product(grid, block, d_AP, d_r0, h_APr0.get(), d_APr0);
+        // checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AP, 1, d_r0, 1, &APr0));
+
+        alpha = rjr0 / (*h_APr0);
+        nalpha = -alpha;
+
+        /* r_j = r_j - alpha*AP_j */
+        cuBLAS::axpy(grid, block, d_AP, d_r, nalpha);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nalpha, d_AP, 1, d_r, 1));
+
+        /* x_{j+1} = x_j + alpha*MP_j */
+        cuBLAS::axpy(grid, block, d_MP, d_x, alpha);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &alpha, d_MP, 1, d_x, 1));
+
+        // Check convergence
+        cuBLAS::nrm2(grid, block, d_r, h_nrmr.get(), d_nrmr);
+        // checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+
+
+        if ((*h_nrmr) / (*h_nrmr0) < tol)
+        {
+            break;
+        }
+
+        /* Vec_{MS_j} = inv(M)*r_j */
+
+        cuBLAS::spMV_M(grid, block, d_val_m, d_r, d_MS);
+
+        /*
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matM,
+            vecR, &doublezero, vecMS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeMS));
+        */
+
+        /* Vec_{AS_j} = A*MS_j */
+
+        cuBLAS::spMV(grid_expanded, block_expanded, d_a_expanded, d_ja_expanded, d_MS, spMV_buffer, d_AS);
+
+        /*
+        checkCudaErrors(cusparseSpMV(
+            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &doubleone, matA,
+            vecMS, &doublezero, vecAS, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT,
+            d_bufferSizeAS));
+        */
+
+        /* (AS_j, S_j(r_j) ) */
+        cuBLAS::dot_product(grid, block, d_AS, d_r, h_ASsj.get(), d_ASsj);
+        //checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_r, 1, &ASsj));
+        /* (AS_j, AS_j ) */
+        cuBLAS::dot_product(grid, block, d_AS, d_AS, h_ASAS.get(), d_ASAS);
+        //checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_AS, 1, d_AS, 1, &ASAS));
+
+        /* omega = (AS_j, S_j(r_j) )/(AS_j, AS_j ) */
+        omega = (*h_ASsj) / (*h_ASAS);
+        nomega = -omega;
+
+        /* x_{j+1} = x_j + omega*MS_j(Mr_j) */
+        cuBLAS::axpy(grid, block, d_MS, d_x, omega);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &omega, d_MS, 1, d_x, 1));
+        /* r_{j+1} = S_j(r_j) - omega*AS_j */
+        cuBLAS::axpy(grid, block, d_AS, d_r, nomega);
+        //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AS, 1, d_r, 1));
+
+        // Check convergence
+        cuBLAS::nrm2(grid, block, d_r, h_nrmr.get(), d_nrmr);
+        //checkCudaErrors(cublasDnrm2(cublasHandle, Nnode, d_r, 1, &nrmr));
+
+        if ((*h_nrmr) / (*h_nrmr0) < tol)
+        {
+            break;
+        }
+
+        cuBLAS::dot_product(grid, block, d_r0, d_r, h_rjjr0.get(), d_rjjr0);
+        // checkCudaErrors(cublasDdot(cublasHandle, Nnode, d_r0, 1, d_r, 1, &rjjr0));
+
+        iter++;
+    }
+
+    FLAG = ((*h_nrmr) / (*h_nrmr0) <= tol) ? 0 : 1;
+
+    if (FLAG == 0)
+    {
+        Convergence.emplace_back(iter);
+        // printf("Number of iteration to converge is %d\n",iter);
+
+        checkCudaErrors(cudaMemcpy(
+            x_pinned, d_x, Nnode * sizeof(double), cudaMemcpyDeviceToHost));
+
+    }
+    else
+    {
+        Convergence.emplace_back(iter);
+        const char* no_convergence = "No Convergence reached!\n";
+        printf("Convergence FLAG is: %d, with residual of: %e\n", FLAG, (*h_nrmr) / (*h_nrmr0));
+        throw no_convergence;
+    }
+
+}
+
+void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
+{
+    PrintQ_set(1);
+
+    SparseA_COO(Coe);
+    COO2CSR();
+
+    b = std::make_unique<double[]>(Nnode);
+    x = std::make_unique<double[]>(Nnode);
+
+    recordEq = std::make_unique<double[]>(Coe.num_probe * (Coe.qstop + 1));
+    probe = std::make_unique<double[]>(Coe.num_probe * Coe.tStep);
+    lagPoly = std::make_unique<double[]>(4 * Coe.tStep);
+    lagPoly_sum = std::make_unique<double[]>(Coe.tStep);
+    vtg = std::make_unique<double[]>(Coe.tStep);
+
+    int Pos, q(0);
+    double jq(0);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    // PARDISO Set up
+    MKL_INT mtype = 11;       /* Real unsymmetric matrix */
+    // Descriptor of main sparse matrix properties
+    struct matrix_descr descrA;
+    // Structure with sparse matrix stored in CSR format
+    sparse_matrix_t       csrA;
+    /* RHS and solution vectors. */
+    MKL_INT nrhs = 1;     /* Number of right hand sides. */
+    /* Internal solver memory pointer pt, */
+    /* 32-bit: int pt[64]; 64-bit: int pt[64] */
+    /* or void *pt[64] should be OK on both architectures */
+    void* pt[64];
+    /* Pardiso control parameters. */
+    MKL_INT iparm[64];
+    MKL_INT maxfct, mnum, phase, error, msglvl;
+    /* Auxiliary variables. */
+    double ddum;          /* Double dummy */
+    MKL_INT idum;         /* Integer dummy. */
+    /* -------------------------------------------------------------------- */
+    /* .. Setup Pardiso control parameters. */
+    /* -------------------------------------------------------------------- */
+    for (int i = 0; i < 64; i++)
+    {
+        iparm[i] = 0;
+    }
+    iparm[0] = 1;         /* No solver default */
+    iparm[1] = 2;         /* Fill-in reordering from METIS */
+    iparm[3] = 0;         /* No iterative-direct algorithm */
+    iparm[4] = 0;         /* No user fill-in reducing permutation */
+    iparm[5] = 0;         /* Write solution into x */
+    iparm[6] = 0;         /* Not in use */
+    iparm[7] = 2;         /* Max numbers of iterative refinement stCoe._eps */
+    iparm[8] = 0;         /* Not in use */
+    iparm[9] = 13;        /* Perturb the pivot elements with 1E-13 */
+    iparm[10] = 1;        /* Use nonsymmetric permutation and scaling MPS */
+    iparm[11] = 0;        /* Conjugate transposed/transpose solve */
+    iparm[12] = 1;        /* Maximum weighted matching algorithm is switched-on (default for non-symmetric) */
+    iparm[13] = 0;        /* Output: Number of perturbed pivots */
+    iparm[14] = 0;        /* Not in use */
+    iparm[15] = 0;        /* Not in use */
+    iparm[16] = 0;        /* Not in use */
+    iparm[17] = -1;       /* Output: Number of nonzeros in the factor LU */
+    iparm[18] = -1;       /* Output: Mflops for LU factorization */
+    iparm[19] = 0;        /* Output: Numbers of CG Iterations */
+    maxfct = 1;           /* Maximum number of numerical factorizations. */
+    mnum = 1;         /* Which factorization to use. */
+    msglvl = 0;           /* Print statistical information  */
+    error = 0;            /* Initialize error flag */
+    /* -------------------------------------------------------------------- */
+    /* .. Initialize the internal solver memory pointer. This is only */
+    /* necessary for the FIRST call of the PARDISO solver. */
+    /* -------------------------------------------------------------------- */
+    for (int i = 0; i < 64; i++)
+    {
+        pt[i] = 0;
+    }
+    /* -------------------------------------------------------------------- */
+    /* .. Reordering and Symbolic Factorization. This step also allocates */
+    /* all memory that is necessary for the factorization. */
+    /* -------------------------------------------------------------------- */
+    phase = 11;
+    PARDISO(pt, &maxfct, &mnum, &mtype, &phase,
+        &Nnode, a.get(), ia.get(), ja.get(), &idum, &nrhs, iparm, &msglvl, &ddum, &ddum, &error);
+
+    if (error != 0)
+    {
+        printf("\nERROR during symbolic factorization: " IFORMAT, error);
+        exit(1);
+    }
+    printf("\nReordering completed ... ");
+    printf("\nNumber of nonzeros in factors = " IFORMAT, iparm[17]);
+    printf("\nNumber of factorization MFLOPS = " IFORMAT, iparm[18]);
+    /* -------------------------------------------------------------------- */
+    /* .. Numerical factorization. */
+    /* -------------------------------------------------------------------- */
+    phase = 22;
+    PARDISO(pt, &maxfct, &mnum, &mtype, &phase,
+        &Nnode, a.get(), ia.get(), ja.get(), &idum, &nrhs, iparm, &msglvl, &ddum, &ddum, &error);
+    if (error != 0)
+    {
+        printf("\nERROR during numerical factorization: " IFORMAT, error);
+        exit(2);
+    }
+    printf("\nFactorization completed ... \n");
+    /* -------------------------------------------------------------------- */
+    /* .. Back substitution and iterative refinement. */
+    /* -------------------------------------------------------------------- */
+    phase = 33;
+
+    descrA.type = SPARSE_MATRIX_TYPE_GENERAL;
+    descrA.mode = SPARSE_FILL_MODE_UPPER;
+    descrA.diag = SPARSE_DIAG_NON_UNIT;
+    mkl_sparse_d_create_csr(&csrA, SPARSE_INDEX_BASE_ONE, Nnode, Nnode, ia.get(), ia.get() + 1, ja.get(), a.get());
+
+    while (q <= Coe.qstop)
+    {
+        // Calculate Laguerre Polynomial
+        if (q == 0)
+        {
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[2 * Coe.tStep + i] = 1.0;
+                lagPoly[3 * Coe.tStep + i] = -Coe.s * (i + 1) * Coe.dt / 2;
+            }
+        }
+        else if (q == 1)
+        {
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
+                lagPoly[2 * Coe.tStep + i] = 1.0 - Coe.s * (i + 1) * Coe.dt;
+            }
+        }
+        else
+        {
+
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[0 * Coe.tStep + i] = lagPoly[1 * Coe.tStep + i];
+                lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
+            }
+
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[2 * Coe.tStep + i] = (1.0 / q) * ((2.0 * q - 1.0 - Coe.s * (i + 1) * Coe.dt) * lagPoly[1 * Coe.tStep + i] - (q - 1) * lagPoly[0 * Coe.tStep + i]);
+            }
+
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                if (lagPoly[2 * Coe.tStep + i] > 1e100) // Make sure that Laguerre polynomial does not go to infinity
+                {
+                    lagPoly[0 * Coe.tStep + i] = lagPoly[0 * Coe.tStep + i] * exp(-Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale);
+                    lagPoly[1 * Coe.tStep + i] = lagPoly[1 * Coe.tStep + i] * exp(-Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale);
+                    lagPoly[2 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i] * exp(-Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale);
+                    lagPoly[3 * Coe.tStep + i] = lagPoly[3 * Coe.tStep + i] + Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale;
+                }
+            }
+
+        }
+
+        for (int i = 0; i < Coe.tStep; ++i)
+        {
+            lagPoly_sum[i] = lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i]);
+        }
+
+        // Compute Laguerre Coefficients for the source
+        jq = 0;
+
+        for (int i = 0; i < Coe.tStep; ++i)
+        {
+            jq += Coe._waveform[i] * (lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i])) * Coe.s * Coe.dt;
+        }
+
+
+        //printf("The jq has value of: %15.5e \n", jq);
+
+        if (jDirecIndex[2] == 1)
+        {
+            for (int i = (Coe._jCellIndex[0] - 1); i < Coe._jCellIndex[1]; i++)
+            {
+                for (int j = (Coe._jCellIndex[2] - 1); j < Coe._jCellIndex[3]; j++)
+                {
+                    for (int k = (Coe._jCellIndex[4] - 1); k < Coe._jCellIndex[5]; k++)
+                    {
+                        Coe._Jz[i][j][k] = jq / Coe._JCount;
+                    }
+                }
+            }
+        }
+
+
+        // Build b vector
+
+        // std::fill_n(b.get(), Nnode, 0.0); // Clear b vector     
+
+        // Ex equation except outmost PEC boundary
+        // No re-assignment of b value for outmost PEC boundary
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ex111 = Coe._nodeNum[i][j][k][0];
+                    b[ex111] = -2.0 * Coe._cey[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i][j - 1][k]) + 2 * Coe._cez[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i][j][k - 1])
+                        - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jx[i][j][k] - 2 * sumE[ex111];
+                }
+            }
+        }
+
+        // Ey equation except outmost PEC boundary
+        // No re-assignment of b value for outmost PEC boundary
+
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ey111 = Coe._nodeNum[i][j][k][1];
+                    b[ey111] = -2.0 * Coe._cez[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j][k - 1]) + 2 * Coe._cex[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i - 1][j][k])
+                        - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jy[i][j][k] - 2 * sumE[ey111];
+                }
+            }
+        }
+
+        // Ez equation except outmost PEC boundary
+        // No re-assignment of b value for outmost PEC boundary
+
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ez111 = Coe._nodeNum[i][j][k][2];
+                    b[ez111] = -2.0 * Coe._cex[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i - 1][j][k])
+                        + 2.0 * Coe._cey[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j - 1][k])
+                        - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jz[i][j][k] - 2.0 * sumE[ez111];
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ex
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+
+            // Edge
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((j == 0) && (k == 0)) // Case (a-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex122 = Coe._nodeNum[i][j + 1][k + 1][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex122]);
+                    }
+                    else if ((j == 0) && (k == Coe.nz)) // Case (a-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex120 = Coe._nodeNum[i][j + 1][k - 1][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex120]);
+                    }
+                    else if ((j == Coe.ny) && (k == 0)) // Case (a-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex102 = Coe._nodeNum[i][j - 1][k + 1][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex102]);
+                    }
+                    else if ((j == Coe.ny) && (k == Coe.nz)) // Case (a-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex100 = Coe._nodeNum[i][j - 1][k - 1][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex100]);
+                    }
+                }
+            }
+
+            // Face
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    if (j == 0) // Case (1-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex121 = Coe._nodeNum[i][j + 1][k][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex121]);
+                    }
+                    else if (j == Coe.ny) // Case (1-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex101 = Coe._nodeNum[i][j - 1][k][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex101]);
+                    }
+                }
+            }
+
+            for (int j = 1; j < Coe.ny; j++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (1-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex112]);
+                    }
+                    else if (k == Coe.nz) // Case (1-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex110 = Coe._nodeNum[i][j][k - 1][0];
+                        b[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex110]);
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ey
+
+        for (int j = 0; j < Coe.ny; ++j)
+        {
+
+            // Edge
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((i == 0) && (k == 0)) // Case (b-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey212 = Coe._nodeNum[i + 1][j][k + 1][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey212]);
+                    }
+                    else if ((k == 0) && (i == Coe.nx)) // Case (b-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey012 = Coe._nodeNum[i - 1][j][k + 1][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey012]);
+                    }
+                    else if ((k == Coe.nz) && (i == 0)) // Case (b-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey210 = Coe._nodeNum[i + 1][j][k - 1][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey210]);
+                    }
+                    else if ((i == Coe.nx) && (k == Coe.nz)) // Case (b-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey010 = Coe._nodeNum[i - 1][j][k - 1][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey010]);
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 1; i < Coe.nx; i++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (2-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey112]);
+                    }
+                    else if (k == Coe.nz) // Case (2-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey110 = Coe._nodeNum[i][j][k - 1][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey110]);
+                    }
+                }
+            }
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 1; k < Coe.nz; k++)
+                {
+                    if (i == 0) // Case (2-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey211 = Coe._nodeNum[i + 1][j][k][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey211]);
+                    }
+                    else if (i == Coe.nx) // Case (2-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey011 = Coe._nodeNum[i - 1][j][k][1];
+                        b[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey011]);
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ez
+
+        for (int k = 0; k < Coe.nz; ++k)
+        {
+
+            // Edge
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+                {
+                    if ((i == 0) && (j == 0)) // Case (c-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez221 = Coe._nodeNum[i + 1][j + 1][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez221]);
+                    }
+                    else if ((i == 0) && (j == Coe.ny)) // Case (c-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez201 = Coe._nodeNum[i + 1][j - 1][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez201]);
+                    }
+                    else if ((i == Coe.nx) && (j == 0)) // Case (c-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez021 = Coe._nodeNum[i - 1][j + 1][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez021]);
+                    }
+                    else if ((i == Coe.nx) && (j == Coe.ny)) // Case (c-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez001 = Coe._nodeNum[i - 1][j - 1][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez001]);
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int j = 1; j < Coe.ny; j++)
+                {
+                    if (i == 0) // Case (3-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez211]);
+                    }
+                    else if (i == Coe.nx) // Case (3-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez011]);
+                    }
+                }
+            }
+
+            for (int i = 1; i < Coe.nx; i++)
+            {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+                {
+                    if (j == 0) // Case (3-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez121]);
+                    }
+                    else if (j == Coe.ny) // Case (3-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+                        b[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez101]);
+                    }
+                }
+            }
+        }
+
+        /* Call Intel PARDISO/CUDA BiCGSTABL solver here */
+
+        // printf("\n\nSolving system with iparm[11] = " IFORMAT " ...\n", iparm[11]);
+        PARDISO(pt, &maxfct, &mnum, &mtype, &phase,
+            &Nnode, a.get(), ia.get(), ja.get(), &idum, &nrhs, iparm, &msglvl, b.get(), x.get(), &error);
+        if (error != 0)
+        {
+            printf("\nERROR during solution: " IFORMAT, error);
+            exit(3);
+        }
+
+        // Compute residual
+
+        /*
+        mkl_sparse_d_mv(transA, 1.0, csrA, descrA, x, 0.0, bs);
+        res = 0.0;
+        res0 = 0.0;
+        for (int j = 1; j <= Nnode; j++)
+        {
+            res += (bs[j - 1] - b[j - 1]) * (bs[j - 1] - b[j - 1]);
+            res0 += b[j - 1] * b[j - 1];
+        }
+        res = sqrt(res) / sqrt(res0);
+        // printf("\nRelative residual = %e", res);
+        // Check residual
+        if (res > 1e-10)
+        {
+            printf("Error: residual is too high!\n");
+            exit(10);
+        }
+        */
+
+        // Update sumE
+
+        for (int i = 0; i < Nnode; ++i)
+        {
+            sumE[i] += x[i];
+        }
+
+        // Update Hx
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ey112 = Coe._nodeNum[i][j][k + 1][1];
+                    ey111 = Coe._nodeNum[i][j][k][1];
+                    ez121 = Coe._nodeNum[i][j + 1][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+
+                    Coe._hx[i][j][k] = Coe._chz[i][j][k] * (x[ey112] - x[ey111]) - Coe._chy[i][j][k] * (x[ez121] - x[ez111])
+                        - 2.0 * Coe._sumHx[i][j][k];
+                    Coe._sumHx[i][j][k] += Coe._hx[i][j][k];
+                }
+            }
+        }
+
+        // Update Hy
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ez211 = Coe._nodeNum[i + 1][j][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+                    ex112 = Coe._nodeNum[i][j][k + 1][0];
+                    ex111 = Coe._nodeNum[i][j][k][0];
+
+                    Coe._hy[i][j][k] = Coe._chx[i][j][k] * (x[ez211] - x[ez111]) - Coe._chz[i][j][k] * (x[ex112] - x[ex111])
+                        - 2.0 * Coe._sumHy[i][j][k];
+                    Coe._sumHy[i][j][k] += Coe._hy[i][j][k];
+                }
+            }
+        }
+
+        // Update Hz
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ex121 = Coe._nodeNum[i][j + 1][k][0];
+                    ex111 = Coe._nodeNum[i][j][k][0];
+                    ey211 = Coe._nodeNum[i + 1][j][k][1];
+                    ey111 = Coe._nodeNum[i][j][k][1];
+
+                    Coe._hz[i][j][k] = Coe._chy[i][j][k] * (x[ex121] - x[ex111]) - Coe._chx[i][j][k] * (x[ey211] - x[ey111])
+                        - 2.0 * Coe._sumHz[i][j][k];
+                    Coe._sumHz[i][j][k] += Coe._hz[i][j][k];
+                }
+            }
+        }
+
+        // Print the basis coefficient for the port with the lowest x and y index
+
+        if (PrintQ == 1)
+        {
+            printf("q = %5d:", q);
+            for (int i = 0; i < Coe.num_probe; ++i)
+            {
+                if (probeDirecIndex[0] == 1)
+                {
+                    Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][0];
+                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                }
+                else if (probeDirecIndex[1] == 1)
+                {
+                    Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][1];
+                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                }
+                else if (probeDirecIndex[2] == 1)
+                {
+                    Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][2];
+                    printf("p%d = %15.5e;", i + 1, x[Pos]);
+                }
+
+                else
+                {
+                    printf("Probe printing error\n");
+                    exit(0);
+                }
+            }
+            printf("\n");
+        }
+
+        for (int n = 0; n < Coe.num_probe; ++n)
+        {
+            std::fill_n(vtg.get(), Coe.tStep, 0.0);
+
+            for (int i = Coe._probeCell[n * 6 + 0] - 1; i < Coe._probeCell[n * 6 + 1]; ++i)
+            {
+                for (int j = Coe._probeCell[n * 6 + 2] - 1; j < Coe._probeCell[n * 6 + 3]; ++j)
+                {
+                    for (int k = Coe._probeCell[n * 6 + 4] - 1; k < Coe._probeCell[n * 6 + 5]; ++k)
+                    {
+                        Pos = Coe._nodeNum[i][j][k][2];
+                        for (int l = 0; l < Coe.tStep; ++l)
+                        {
+                            vtg[l] += x[Pos] * lagPoly_sum[l] * (-Coe._dze[k] / (Coe._probeCell[n * 6 + 1] - Coe._probeCell[n * 6 + 0] + 1));
+                            // probe[n][l] += vtg[l];
+                        }
+                    }
+                }
+            }
+            for (int i = 0; i < Coe.tStep; i++)
+            {
+                probe[i + n * Coe.tStep] += vtg[i];
+            }
+            Pos = Coe._nodeNum[Coe._probeCell[n * 6 + 0] - 1][Coe._probeCell[n * 6 + 2] - 1][Coe._probeCell[n * 6 + 4] - 1][2];
+            recordEq[q + n * (Coe.qstop + 1)] = x[Pos];
+        }
+        ++q;
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    std::cout << "Elapsed time: " << elapsed_time << " milliseconds" << std::endl;
+
+    /* -------------------------------------------------------------------- */
+    /* .. Termination and release of memory. */
+    /* -------------------------------------------------------------------- */
+    phase = -1;           /* Release internal memory. */
+    PARDISO(pt, &maxfct, &mnum, &mtype, &phase, &Nnode, &ddum, ia.get(), ja.get(), &idum, &nrhs, iparm, &msglvl, &ddum, &ddum, &error);
+
+    std::fill_n(sumE.get(), Nnode, 0.0);
+    std::fill_n(lagPoly_sum.get(), Coe.tStep, 0.0);
+}
+
+void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
+{
+    PrintQ_set(1);
+
+    SparseA_COO(Coe);
+    COO2CSR();
+
+    recordEq = std::make_unique<double[]>(Coe.num_probe * (Coe.qstop + 1));
+    probe = std::make_unique<double[]>(Coe.num_probe * Coe.tStep);
+    lagPoly = std::make_unique<double[]>(4 * Coe.tStep);
+    lagPoly_sum = std::make_unique<double[]>(Coe.tStep);
+    vtg = std::make_unique<double[]>(Coe.tStep);
+
+    checkCudaErrors(cudaMallocHost((void**)&b_pinned, Nnode * sizeof(double)));
+    checkCudaErrors(cudaMallocHost((void**)&x_pinned, Nnode * sizeof(double)));
+
+    /* This will pick the best possible CUDA capable device */
+    cudaDeviceProp deviceProp;
+    int devID;
+    checkCudaErrors(cudaGetDevice(&devID));
+    printf("GPU selected Device ID = %d \n", devID);
+
+    if (devID < 0)
+    {
+        printf("Invalid GPU device %d selected,  exiting...\n", devID);
+        exit(EXIT_SUCCESS);
+    }
+
+    checkCudaErrors(cudaGetDeviceProperties(&deviceProp, devID));
+
+    /* Statistics about the GPU device */
+    printf("> GPU device selected: %s\n", deviceProp.name);
+    printf("> GPU device has %d Multi-Processors, SM %d.%d compute capabilities\n",
+        deviceProp.multiProcessorCount, deviceProp.major, deviceProp.minor);
+    printf("> GPU device has Maximum %d blocks per multiprocessor\n",
+        deviceProp.maxBlocksPerMultiProcessor);
+    printf("> GPU device has %d 32-bit registers available per block, %d 32-bit registers available per multiprocessor\n",
+        deviceProp.regsPerBlock, deviceProp.regsPerMultiprocessor);
+    printf("> GPU device has Maximum %d threads per block, Maximum %d threads per multiprocessor\n",
+        deviceProp.maxThreadsPerBlock, deviceProp.maxThreadsPerMultiProcessor);
+    printf("> GPU device has %d Byte Shared MEM per block,%d Shared MEM per SM\n\n",
+        deviceProp.sharedMemPerBlock, deviceProp.sharedMemPerMultiprocessor);
+
+    int Pos, q(0);
+    double jq(0);
+
+    if (_M == None)
+    {
+        iter_ptr = &LFDTD::BiCGSTABL_Solver;
+    }
+    else
+    {
+        if (_Solver == _cuSPARSE)
+        {
+            iter_ptr = &LFDTD::BiCGSTABL_M_Solver;
+        }
+        else if (_Solver == _CUDA)
+        {
+            cuBLAS::get_const_int_symbol(Nnode);
+            iter_ptr = &LFDTD::BiCGSTABL_M_Kernel_Solver;
+        }
+        else
+        {
+            cuBLAS::get_const_int_symbol(Nnode);
+            iter_ptr = &LFDTD::BiCGSTABL_M_Expanded_Kernel_Solver;
+            CSR_Expanded(); // Only for the expanded spMV solver
+            checkCudaErrors(cudaMalloc((void**)&spMV_buffer, 16 * Nnode * sizeof(double)));
+            checkCudaErrors(cudaMalloc((void**)&d_a_expanded, 16 * Nnode * sizeof(double)));
+            checkCudaErrors(cudaMalloc((void**)&d_ja_expanded, 16 * Nnode * sizeof(int)));
+            checkCudaErrors(cudaMemcpy(d_a_expanded, a_expanded.get(), 16 * Nnode * sizeof(double), cudaMemcpyHostToDevice));
+            checkCudaErrors(cudaMemcpy(d_ja_expanded, ja_expanded.get(), 16 * Nnode * sizeof(int), cudaMemcpyHostToDevice));
+        }
+
+    }
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    printf("Simulation starts...\n");
+
+    while (q <= Coe.qstop)
+    {
+        // Calculate Laguerre Polynomial
+        if (q == 0)
+        {
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[2 * Coe.tStep + i] = 1.0;
+                lagPoly[3 * Coe.tStep + i] = -Coe.s * (i + 1) * Coe.dt / 2;
+            }
+        }
+        else if (q == 1)
+        {
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
+                lagPoly[2 * Coe.tStep + i] = 1.0 - Coe.s * (i + 1) * Coe.dt;
+            }
+        }
+        else
+        {
+
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[0 * Coe.tStep + i] = lagPoly[1 * Coe.tStep + i];
+                lagPoly[1 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i];
+            }
+
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                lagPoly[2 * Coe.tStep + i] = (1.0 / q) * ((2.0 * q - 1.0 - Coe.s * (i + 1) * Coe.dt) * lagPoly[1 * Coe.tStep + i] - (q - 1) * lagPoly[0 * Coe.tStep + i]);
+            }
+
+            for (int i = 0; i < Coe.tStep; ++i)
+            {
+                if (lagPoly[2 * Coe.tStep + i] > 1e100) // Make sure that Laguerre polynomial does not go to infinity
+                {
+                    lagPoly[0 * Coe.tStep + i] = lagPoly[0 * Coe.tStep + i] * exp(-Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale);
+                    lagPoly[1 * Coe.tStep + i] = lagPoly[1 * Coe.tStep + i] * exp(-Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale);
+                    lagPoly[2 * Coe.tStep + i] = lagPoly[2 * Coe.tStep + i] * exp(-Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale);
+                    lagPoly[3 * Coe.tStep + i] = lagPoly[3 * Coe.tStep + i] + Coe.s * (i + 1) * Coe.dt / 2 * Coe.scale;
+                }
+            }
+
+        }
+
+        for (int i = 0; i < Coe.tStep; ++i)
+        {
+            lagPoly_sum[i] = lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i]);
+        }
+
+        // Compute Laguerre Coefficients for the source
+        jq = 0;
+
+        for (int i = 0; i < Coe.tStep; ++i)
+        {
+            jq += Coe._waveform[i] * (lagPoly[2 * Coe.tStep + i] * exp(lagPoly[3 * Coe.tStep + i])) * Coe.s * Coe.dt;
+        }
+
+
+        //printf("The jq has value of: %15.5e \n", jq);
+
+        if (jDirecIndex[2] == 1)
+        {
+            for (int i = (Coe._jCellIndex[0] - 1); i < Coe._jCellIndex[1]; i++)
+            {
+                for (int j = (Coe._jCellIndex[2] - 1); j < Coe._jCellIndex[3]; j++)
+                {
+                    for (int k = (Coe._jCellIndex[4] - 1); k < Coe._jCellIndex[5]; k++)
+                    {
+                        Coe._Jz[i][j][k] = jq / Coe._JCount;
+                    }
+                }
+            }
+        }
+
+
+        // Build b vector
+
+        // std::fill_n(b_pinned, Nnode, 0.0); // Clear b vector   
+        // std::fill_n(x_pinned, Nnode, 0.0); // Clear x vector  
+
+        // Ex equation except outmost PEC boundary
+        // No re-assignment of b value for outmost PEC boundary
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ex111 = Coe._nodeNum[i][j][k][0];
+                    b_pinned[ex111] = -2.0 * Coe._cey[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i][j - 1][k]) + 2 * Coe._cez[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i][j][k - 1])
+                        - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jx[i][j][k] - 2 * sumE[ex111];
+                }
+            }
+        }
+
+        // Ey equation except outmost PEC boundary
+        // No re-assignment of b value for outmost PEC boundary
+
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    ey111 = Coe._nodeNum[i][j][k][1];
+                    b_pinned[ey111] = -2.0 * Coe._cez[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j][k - 1]) + 2 * Coe._cex[i][j][k] * (Coe._sumHz[i][j][k] - Coe._sumHz[i - 1][j][k])
+                        - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jy[i][j][k] - 2 * sumE[ey111];
+                }
+            }
+        }
+
+        // Ez equation except outmost PEC boundary
+        // No re-assignment of b value for outmost PEC boundary
+
+        for (int i = 1; i < Coe.nx; ++i)
+        {
+            for (int j = 1; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ez111 = Coe._nodeNum[i][j][k][2];
+                    b_pinned[ez111] = -2.0 * Coe._cex[i][j][k] * (Coe._sumHy[i][j][k] - Coe._sumHy[i - 1][j][k])
+                        + 2.0 * Coe._cey[i][j][k] * (Coe._sumHx[i][j][k] - Coe._sumHx[i][j - 1][k])
+                        - 2.0 / (Coe.s * Coe._eps[i][j][k]) * Coe._Jz[i][j][k] - 2.0 * sumE[ez111];
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ex
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+
+            // Edge
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((j == 0) && (k == 0)) // Case (a-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex122 = Coe._nodeNum[i][j + 1][k + 1][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex122]);
+                    }
+                    else if ((j == 0) && (k == Coe.nz)) // Case (a-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex120 = Coe._nodeNum[i][j + 1][k - 1][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex120]);
+                    }
+                    else if ((j == Coe.ny) && (k == 0)) // Case (a-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex102 = Coe._nodeNum[i][j - 1][k + 1][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex102]);
+                    }
+                    else if ((j == Coe.ny) && (k == Coe.nz)) // Case (a-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex100 = Coe._nodeNum[i][j - 1][k - 1][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex100]);
+                    }
+                }
+            }
+
+            // Face
+            for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+            {
+                for (int k = 1; k < Coe.nz; ++k)
+                {
+                    if (j == 0) // Case (1-1)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex121 = Coe._nodeNum[i][j + 1][k][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex121]);
+                    }
+                    else if (j == Coe.ny) // Case (1-2)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex101 = Coe._nodeNum[i][j - 1][k][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex101]);
+                    }
+                }
+            }
+
+            for (int j = 1; j < Coe.ny; j++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (1-3)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex112 = Coe._nodeNum[i][j][k + 1][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex112]);
+                    }
+                    else if (k == Coe.nz) // Case (1-4)
+                    {
+                        ex111 = Coe._nodeNum[i][j][k][0];
+                        ex110 = Coe._nodeNum[i][j][k - 1][0];
+                        b_pinned[ex111] = -Coe.s / (2.0 * v0) * (sumE[ex111] + sumE[ex110]);
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ey
+
+        for (int j = 0; j < Coe.ny; ++j)
+        {
+
+            // Edge
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if ((i == 0) && (k == 0)) // Case (b-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey212 = Coe._nodeNum[i + 1][j][k + 1][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey212]);
+                    }
+                    else if ((k == 0) && (i == Coe.nx)) // Case (b-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey012 = Coe._nodeNum[i - 1][j][k + 1][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey012]);
+                    }
+                    else if ((k == Coe.nz) && (i == 0)) // Case (b-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey210 = Coe._nodeNum[i + 1][j][k - 1][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey210]);
+                    }
+                    else if ((i == Coe.nx) && (k == Coe.nz)) // Case (b-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey010 = Coe._nodeNum[i - 1][j][k - 1][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey010]);
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 1; i < Coe.nx; i++)
+            {
+                for (int k = 0; k < Coe.nz + 1; k += Coe.nz)
+                {
+                    if (k == 0) // Case (2-1)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey112 = Coe._nodeNum[i][j][k + 1][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey112]);
+                    }
+                    else if (k == Coe.nz) // Case (2-2)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey110 = Coe._nodeNum[i][j][k - 1][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey110]);
+                    }
+                }
+            }
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int k = 1; k < Coe.nz; k++)
+                {
+                    if (i == 0) // Case (2-3)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey211 = Coe._nodeNum[i + 1][j][k][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey211]);
+                    }
+                    else if (i == Coe.nx) // Case (2-4)
+                    {
+                        ey111 = Coe._nodeNum[i][j][k][1];
+                        ey011 = Coe._nodeNum[i - 1][j][k][1];
+                        b_pinned[ey111] = -Coe.s / (2.0 * v0) * (sumE[ey111] + sumE[ey011]);
+                    }
+                }
+            }
+        }
+
+        // Outmost ABC boundary for Ez
+
+        for (int k = 0; k < Coe.nz; ++k)
+        {
+
+            // Edge
+
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+                {
+                    if ((i == 0) && (j == 0)) // Case (c-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez221 = Coe._nodeNum[i + 1][j + 1][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez221]);
+                    }
+                    else if ((i == 0) && (j == Coe.ny)) // Case (c-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez201 = Coe._nodeNum[i + 1][j - 1][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez201]);
+                    }
+                    else if ((i == Coe.nx) && (j == 0)) // Case (c-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez021 = Coe._nodeNum[i - 1][j + 1][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez021]);
+                    }
+                    else if ((i == Coe.nx) && (j == Coe.ny)) // Case (c-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez001 = Coe._nodeNum[i - 1][j - 1][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez001]);
+                    }
+                }
+            }
+
+            // Face
+            for (int i = 0; i < Coe.nx + 1; i += Coe.nx)
+            {
+                for (int j = 1; j < Coe.ny; j++)
+                {
+                    if (i == 0) // Case (3-1)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez211 = Coe._nodeNum[i + 1][j][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez211]);
+                    }
+                    else if (i == Coe.nx) // Case (3-2)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez011 = Coe._nodeNum[i - 1][j][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez011]);
+                    }
+                }
+            }
+
+            for (int i = 1; i < Coe.nx; i++)
+            {
+                for (int j = 0; j < Coe.ny + 1; j += Coe.ny)
+                {
+                    if (j == 0) // Case (3-3)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez121 = Coe._nodeNum[i][j + 1][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez121]);
+                    }
+                    else if (j == Coe.ny) // Case (3-4)
+                    {
+                        ez111 = Coe._nodeNum[i][j][k][2];
+                        ez101 = Coe._nodeNum[i][j - 1][k][2];
+                        b_pinned[ez111] = -Coe.s / (2.0 * v0) * (sumE[ez111] + sumE[ez101]);
+                    }
+                }
+            }
+        }
+
+
+        /* Call Intel CUDA BiCGSTABL solver here */
+
+        try
+        {
+            (this->*iter_ptr)();
+        }
+        catch (const char* e)
+        {
+            std::cerr << e;
+            break;
+        }
+
+
+        // Update sumE
+
+        for (int i = 0; i < Nnode; ++i)
+        {
+            sumE[i] += x_pinned[i];
+        }
+
+        // Update Hx
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ey112 = Coe._nodeNum[i][j][k + 1][1];
+                    ey111 = Coe._nodeNum[i][j][k][1];
+                    ez121 = Coe._nodeNum[i][j + 1][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+
+                    Coe._hx[i][j][k] = Coe._chz[i][j][k] * (x_pinned[ey112] - x_pinned[ey111]) - Coe._chy[i][j][k] * (x_pinned[ez121] - x_pinned[ez111])
+                        - 2.0 * Coe._sumHx[i][j][k];
+                    Coe._sumHx[i][j][k] += Coe._hx[i][j][k];
+                }
+            }
+        }
+
+        // Update Hy
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ez211 = Coe._nodeNum[i + 1][j][k][2];
+                    ez111 = Coe._nodeNum[i][j][k][2];
+                    ex112 = Coe._nodeNum[i][j][k + 1][0];
+                    ex111 = Coe._nodeNum[i][j][k][0];
+
+                    Coe._hy[i][j][k] = Coe._chx[i][j][k] * (x_pinned[ez211] - x_pinned[ez111]) - Coe._chz[i][j][k] * (x_pinned[ex112] - x_pinned[ex111])
+                        - 2.0 * Coe._sumHy[i][j][k];
+                    Coe._sumHy[i][j][k] += Coe._hy[i][j][k];
+                }
+            }
+        }
+
+        // Update Hz
+
+        for (int i = 0; i < Coe.nx; ++i)
+        {
+            for (int j = 0; j < Coe.ny; ++j)
+            {
+                for (int k = 0; k < Coe.nz; ++k)
+                {
+                    ex121 = Coe._nodeNum[i][j + 1][k][0];
+                    ex111 = Coe._nodeNum[i][j][k][0];
+                    ey211 = Coe._nodeNum[i + 1][j][k][1];
+                    ey111 = Coe._nodeNum[i][j][k][1];
+
+                    Coe._hz[i][j][k] = Coe._chy[i][j][k] * (x_pinned[ex121] - x_pinned[ex111]) - Coe._chx[i][j][k] * (x_pinned[ey211] - x_pinned[ey111])
+                        - 2.0 * Coe._sumHz[i][j][k];
+                    Coe._sumHz[i][j][k] += Coe._hz[i][j][k];
+                }
+            }
+        }
+
+        // Print the basis coefficient for the port with the lowest x and y index
+
+        if (PrintQ == 1)
+        {
+            printf("q = %5d:", q);
+            for (int i = 0; i < Coe.num_probe; ++i)
+            {
+                if (probeDirecIndex[0] == 1)
+                {
+                    Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][0];
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
+                }
+                else if (probeDirecIndex[1] == 1)
+                {
+                    Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][1];
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
+                }
+                else if (probeDirecIndex[2] == 1)
+                {
+                    Pos = Coe._nodeNum[Coe._probeCell[i * 6 + 0] - 1][Coe._probeCell[i * 6 + 2] - 1][Coe._probeCell[i * 6 + 4] - 1][2];
+                    printf("p%d = %15.5e;", i + 1, x_pinned[Pos]);
+                }
+
+                else
+                {
+                    printf("Probe printing error\n");
+                    exit(0);
+                }
+            }
+            printf("\n");
+        }
+
+        for (int n = 0; n < Coe.num_probe; ++n)
+        {
+            std::fill_n(vtg.get(), Coe.tStep, 0.0);
+
+            for (int i = Coe._probeCell[n * 6 + 0] - 1; i < Coe._probeCell[n * 6 + 1]; ++i)
+            {
+                for (int j = Coe._probeCell[n * 6 + 2] - 1; j < Coe._probeCell[n * 6 + 3]; ++j)
+                {
+                    for (int k = Coe._probeCell[n * 6 + 4] - 1; k < Coe._probeCell[n * 6 + 5]; ++k)
+                    {
+                        Pos = Coe._nodeNum[i][j][k][2];
+                        for (int l = 0; l < Coe.tStep; ++l)
+                        {
+                            vtg[l] += x_pinned[Pos] * lagPoly_sum[l] * (-Coe._dze[k] / (Coe._probeCell[n * 6 + 1] - Coe._probeCell[n * 6 + 0] + 1));
+                            // probe[n][l] += vtg[l];
+                        }
+                    }
+                }
+            }
+            for (int i = 0; i < Coe.tStep; i++)
+            {
+                probe[i + n * Coe.tStep] += vtg[i];
+            }
+            Pos = Coe._nodeNum[Coe._probeCell[n * 6 + 0] - 1][Coe._probeCell[n * 6 + 2] - 1][Coe._probeCell[n * 6 + 4] - 1][2];
+            recordEq[q + n * (Coe.qstop + 1)] = x_pinned[Pos];
+        }
+
+        ++q;
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    printf("Simulation ends with total %d orders solved!\n", Coe.qstop);
+    printf("Elapsed time: %lld  milliseconds.\n", elapsed_time);
+
+    std::fill_n(sumE.get(), Nnode, 0.0);
+    std::fill_n(lagPoly_sum.get(), Coe.tStep, 0.0);
+}
+
+void LFDTD::Convergence_Profiler(const std::string& InputFile)
+{
+    std::ofstream myfile(InputFile);
+    if (myfile.is_open())
+    {
+        for (int i = 0; i < Convergence.size(); ++i)
+        {
+            myfile << Convergence[i] << std::endl;
+        }
+        myfile.close();
+    }
+
+}
+
+void LFDTD::result_write(const std::string& InputFile, const LFDTD_Coe& Coe)
+{
+    std::ofstream myfile(InputFile);
+    if (myfile.is_open())
+    {
+        for (int count = 0; count < Coe.tStep; count++)
+        {
+            for (int i = 0; i < Coe.num_probe; i++)
+            {
+                myfile << probe[count + i * Coe.tStep] << " ";
+            }
+            myfile << std::endl;
+        }
+        myfile.close();
+    }
+
+}
+
+void LFDTD::Eq_result_write(const std::string& InputFile, const LFDTD_Coe& Coe)
+{
+    std::ofstream myfile(InputFile);
+    if (myfile.is_open())
+    {
+        for (int count = 0; count <= Coe.qstop; count++)
+        {
+            for (int i = 0; i < Coe.num_probe; i++)
+            {
+                myfile << recordEq[count + i * (Coe.qstop + 1)] << " ";
+            }
+            myfile << std::endl;
+        }
+        myfile.close();
+    }
+}
+
+void LFDTD::result_write_app(const std::string& InputFile, const LFDTD_Coe& Coe)
+{
+    std::ofstream myfile(InputFile, std::ios::app);
+    if (myfile.is_open())
+    {
+        for (int count = 0; count < Coe.tStep; count++)
+        {
+            for (int i = 0; i < Coe.num_probe; i++)
+            {
+                myfile << probe[count + i * Coe.tStep] << " ";
+            }
+            myfile << std::endl;
+        }
+        myfile.close();
+    }
+
+    std::fill_n(probe.get(), Coe.tStep, 0.0);
+}
+
+void LFDTD::Eq_result_write_app(const std::string& InputFile, const LFDTD_Coe& Coe)
+{
+    std::ofstream myfile(InputFile, std::ios::app);
+    if (myfile.is_open())
+    {
+        for (int count = 0; count <= Coe.qstop; count++)
+        {
+            for (int i = 0; i < Coe.num_probe; i++)
+            {
+                myfile << recordEq[count + i * (Coe.qstop + 1)] << " ";
+            }
+            myfile << std::endl;
+        }
+        myfile.close();
+    }
 }
