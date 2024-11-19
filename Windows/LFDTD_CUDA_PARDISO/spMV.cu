@@ -172,14 +172,133 @@ void dot_product_kernel_unroll(const double* __restrict__ x, const double* __res
 	// unrolling warp
 	if (threadIdx.x < 32)
 	{
-
 		cache[threadIdx.x] += cache[threadIdx.x + 32];
 		cache[threadIdx.x] += cache[threadIdx.x + 16];
 		cache[threadIdx.x] += cache[threadIdx.x + 8];
 		cache[threadIdx.x] += cache[threadIdx.x + 4];
 		cache[threadIdx.x] += cache[threadIdx.x + 2];
 		cache[threadIdx.x] += cache[threadIdx.x + 1];
+	}
 
+	if (threadIdx.x == 0) {
+		atomicAdd(dot, cache[0]);
+	}
+}
+
+/*
+	Two dot product operations in one kernel launch
+*/
+template <int blockDIM> __global__
+void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot)
+{
+	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x * 8; // block unroll factor of 8
+
+	__shared__ volatile double cache[blockDIM]; // dynamically allocate the shared memory according to block size
+
+	double temp_sum = 0.0;
+	double temp_dot = 0.0;
+
+	// x*x dot product
+
+	if (tid + 7 * blockDim.x <= d_Nnode)
+	{
+		double a1 = x[tid] * x[tid];
+		double a11 = x[tid] * y[tid];
+
+		double a2 = x[tid + blockDim.x] * x[tid + blockDim.x];
+		double a22 = x[tid + blockDim.x] * y[tid + blockDim.x];
+
+		double a3 = x[tid + 2 * blockDim.x] * x[tid + 2 * blockDim.x];
+		double a33 = x[tid + 2 * blockDim.x] * y[tid + 2 * blockDim.x];
+
+		double a4 = x[tid + 3 * blockDim.x] * x[tid + 3 * blockDim.x];
+		double a44 = x[tid + 3 * blockDim.x] * y[tid + 3 * blockDim.x];
+
+		double a5 = x[tid + 4 * blockDim.x] * x[tid + 4 * blockDim.x];
+		double a55 = x[tid + 4 * blockDim.x] * y[tid + 4 * blockDim.x];
+
+		double a6 = x[tid + 5 * blockDim.x] * x[tid + 5 * blockDim.x];
+		double a66 = x[tid + 5 * blockDim.x] * y[tid + 5 * blockDim.x];
+
+		double a7 = x[tid + 6 * blockDim.x] * x[tid + 6 * blockDim.x];
+		double a77 = x[tid + 6 * blockDim.x] * y[tid + 6 * blockDim.x];
+
+		double a8 = x[tid + 7 * blockDim.x] * x[tid + 7 * blockDim.x];
+		double a88 = x[tid + 7 * blockDim.x] * y[tid + 7 * blockDim.x];
+
+		temp_sum = a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8;
+
+		temp_dot = a11 + a22 + a33 + a44 + a55 + a66 + a77 + a88;
+	}
+	else
+	{
+		unsigned int Grid_num = d_Nnode / (blockDim.x * 8); // integer number of assigned grid with unroll factor of 8
+
+		tid = threadIdx.x + (Grid_num * blockDim.x * 8 + blockDim.x * (blockIdx.x - Grid_num)); // Remaining block will do the dot product without any unroll factor
+
+		if (tid < d_Nnode) temp_sum = x[tid] * x[tid]; temp_dot = x[tid] * y[tid];
+	}
+
+	// x*y dot product
+
+	cache[threadIdx.x] = temp_sum;
+
+	__syncthreads();
+
+	// in-place reduction in shared memory
+	if (blockDIM >= 1024 && threadIdx.x < 512) cache[threadIdx.x] += cache[threadIdx.x + 512];
+	__syncthreads();
+
+	if (blockDIM >= 512 && threadIdx.x < 256) cache[threadIdx.x] += cache[threadIdx.x + 256];
+	__syncthreads();
+
+	if (blockDIM >= 256 && threadIdx.x < 128) cache[threadIdx.x] += cache[threadIdx.x + 128];
+	__syncthreads();
+
+	if (blockDIM >= 128 && threadIdx.x < 64) cache[threadIdx.x] += cache[threadIdx.x + 64];
+	__syncthreads();
+
+	// unrolling warp
+	if (threadIdx.x < 32)
+	{
+		cache[threadIdx.x] += cache[threadIdx.x + 32];
+		cache[threadIdx.x] += cache[threadIdx.x + 16];
+		cache[threadIdx.x] += cache[threadIdx.x + 8];
+		cache[threadIdx.x] += cache[threadIdx.x + 4];
+		cache[threadIdx.x] += cache[threadIdx.x + 2];
+		cache[threadIdx.x] += cache[threadIdx.x + 1];
+	}
+
+	if (threadIdx.x == 0) {
+		atomicAdd(sum, cache[0]);
+	}
+
+	cache[threadIdx.x] = temp_dot;
+
+	__syncthreads();
+
+	// in-place reduction in shared memory
+	if (blockDIM >= 1024 && threadIdx.x < 512) cache[threadIdx.x] += cache[threadIdx.x + 512];
+	__syncthreads();
+
+	if (blockDIM >= 512 && threadIdx.x < 256) cache[threadIdx.x] += cache[threadIdx.x + 256];
+	__syncthreads();
+
+	if (blockDIM >= 256 && threadIdx.x < 128) cache[threadIdx.x] += cache[threadIdx.x + 128];
+	__syncthreads();
+
+	if (blockDIM >= 128 && threadIdx.x < 64) cache[threadIdx.x] += cache[threadIdx.x + 64];
+	__syncthreads();
+
+	// unrolling warp
+	if (threadIdx.x < 32)
+	{
+		cache[threadIdx.x] += cache[threadIdx.x + 32];
+		cache[threadIdx.x] += cache[threadIdx.x + 16];
+		cache[threadIdx.x] += cache[threadIdx.x + 8];
+		cache[threadIdx.x] += cache[threadIdx.x + 4];
+		cache[threadIdx.x] += cache[threadIdx.x + 2];
+		cache[threadIdx.x] += cache[threadIdx.x + 1];
 	}
 
 	if (threadIdx.x == 0) {
@@ -197,6 +316,35 @@ __global__ void axpy_kernal(const double* __restrict__ x, double* __restrict__ y
 	if (tid < d_Nnode)
 	{
 		y[tid] += d_scale * x[tid];
+	}
+}
+
+/*
+	Two axpy operations in one function call:
+	1. y1 += scale * x1
+	2. y2 -= scale * x2
+*/
+__global__ void axpy_kernal_V2(const double* __restrict__ x1, double* __restrict__ y1, const double* __restrict__ x2, double* __restrict__ y2)
+{
+	unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+	if (tid < d_Nnode)
+	{
+		y1[tid] += d_scale * x1[tid];
+		y2[tid] -= d_scale * x2[tid];
+	}
+}
+
+/*
+	This kernel combines the operation for P_{j+1} = r_{j+1} + beta_j * (P_j - omega_j*AP_j)
+*/
+__global__ void p_update_kernel(double* __restrict__ P, const double* __restrict__ AP, const double* __restrict__ r)
+{
+	unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+	if (tid < d_Nnode)
+	{
+		P[tid] = r[tid] + d_beta * (P[tid] - d_omega * AP[tid]);
 	}
 }
 
@@ -368,6 +516,42 @@ namespace cuBLAS {
 
 	}
 
+	/* Return the dot product of vector 1 - vectort 1 (V_1) and vector 1 - vector 2 (V_2) to a host pointer - product */
+	void dot_product_V2(dim3& Grid, dim3& Block, const double* __restrict__ d_V_1, const double* __restrict__ d_V_2,
+		double* __restrict__ sum, double* __restrict__ d_sum, double* __restrict__ dot, double* __restrict__ d_dot)
+	{
+
+		int Grid_unrolled = (Grid.x - 8 * (Grid.x / 8)) + Grid.x / 8;
+
+		checkCudaErrors(cudaMemset(d_sum, 0, sizeof(double))); // Initialize to 0
+		checkCudaErrors(cudaMemset(d_dot, 0, sizeof(double))); // Initialize to 0
+
+		switch (Block.x)
+		{
+
+		case 1024:
+			dot_product_kernel_V2_unroll <1024> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			break;
+
+		case 512:
+			dot_product_kernel_V2_unroll <512> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			break;
+
+		case 256:
+			dot_product_kernel_V2_unroll <256> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			break;
+
+		case 128:
+			dot_product_kernel_V2_unroll <128> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			break;
+
+		}
+
+		checkCudaErrors(cudaMemcpy(sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost));
+		checkCudaErrors(cudaMemcpy(dot, d_dot, sizeof(double), cudaMemcpyDeviceToHost));
+
+	}
+
 	/* Return the nrm2 product of vector V to a host pointer - sum */
 	void nrm2(dim3& Grid, dim3& Block, const double* __restrict__ V, double* __restrict__ sum, double* __restrict__ d_sum)
 	{
@@ -403,6 +587,17 @@ namespace cuBLAS {
 
 	}
 
+	/* Return the vector product of vector P_{j+1} = r_{j+1} + beta_j * (P_j - omega_j*AP_j) */
+	void p_update(dim3& Grid, dim3& Block, double* __restrict__ P, const double* __restrict__ AP, const double* __restrict__ r, const double& omega, const double& beta)
+	{
+
+		checkCudaErrors(cudaMemcpyToSymbol(d_omega, &omega, sizeof(double))); // get the constant omega factor
+		checkCudaErrors(cudaMemcpyToSymbol(d_beta, &beta, sizeof(double))); // get the constant beta factor
+
+		p_update_kernel << <Grid, Block >> > (P, AP, r);
+
+	}
+
 	/* Return the vector product of vector y = y + scale * x */
 	void axpy(dim3& Grid, dim3& Block, const double* __restrict__ x, double* __restrict__ y, const double& scale)
 	{
@@ -410,6 +605,16 @@ namespace cuBLAS {
 		checkCudaErrors(cudaMemcpyToSymbol(d_scale, &scale, sizeof(double))); // get the constant scale factor
 
 		axpy_kernal << <Grid, Block >> > (x, y);
+
+	}
+
+	/* Return the 2 vector product of vector y1 = y1 + scale * x1 | y2 = y2 - scale * x2 */
+	void axpy_V2(dim3& Grid, dim3& Block, const double* __restrict__ x1, double* __restrict__ y1, const double* __restrict__ x2, double* __restrict__ y2, const double& scale)
+	{
+
+		checkCudaErrors(cudaMemcpyToSymbol(d_scale, &scale, sizeof(double))); // get the constant scale factor
+
+		axpy_kernal_V2 << <Grid, Block >> > (x1, y1, x2, y2);
 
 	}
 
