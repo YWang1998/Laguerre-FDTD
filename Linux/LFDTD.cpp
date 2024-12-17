@@ -23,11 +23,6 @@ void LFDTD::PrintQ_set(int i)
     if (i) PrintQ = 1;
 }
 
-void LFDTD::Sparse_A_Val(std::ifstream& a_file, int n, const int NNZ)
-{
-
-}
-
 void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 {
 
@@ -48,6 +43,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
         }
 
         ia_M[Nnode] = Nnode;
+
+        // Reserve memory space for vector to avoid excess copy - Not necessary need this much of memory
+        IA.reserve(13 * Nnode);
+        JA.reserve(13 * Nnode);
+        VAL.reserve(13 * Nnode);
 
         // Ex equations
         for (int i = 0; i < Coe.nx; ++i)
@@ -1526,6 +1526,10 @@ void LFDTD::COO2CSR()
     std::vector<int> JA_Sorted_Idx;
 
     std::sort(IA.begin(), IA.end(), cmp);
+
+    // Reserve memory space for vector to avoid excess copy - Not necessary need this much of memory
+    JA_Group.reserve(NNZ);
+    JA_Sorted_Idx.reserve(NNZ);
 
     if (_Solver)
     {
