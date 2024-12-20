@@ -802,6 +802,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
     }
     else
     {
+        // Reserve memory space for vector to avoid excess copy - Not necessary need this much of memory
+        IA.reserve(13 * Nnode);
+        JA.reserve(13 * Nnode);
+        VAL.reserve(13 * Nnode);
+        
         printf("Constructing Sparse Matrix A ...\n");
         // Ex equations
         for (int i = 0; i < Coe.nx; ++i)
