@@ -43,6 +43,11 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 
         ia_M[Nnode] = Nnode;
 
+        // Reserve memory space for vector to avoid excess copy - Not necessary need this much of memory
+        IA.reserve(13 * Nnode);
+        JA.reserve(13 * Nnode);
+        VAL.reserve(13 * Nnode);
+
         // Ex equations
         for (INTEGER i = 0; i < Coe.nx; ++i)
         {
@@ -796,6 +801,12 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
     }
     else
     {
+
+        // Reserve memory space for vector to avoid excess copy - Not necessary need this much of memory
+        IA.reserve(13 * Nnode);
+        JA.reserve(13 * Nnode);
+        VAL.reserve(13 * Nnode);
+
         printf("Constructing Sparse Matrix A ...\n");
         // Ex equations
         for (INTEGER i = 0; i < Coe.nx; ++i)
@@ -1520,6 +1531,10 @@ void LFDTD::COO2CSR()
     std::vector<INTEGER> JA_Sorted_Idx;
 
     std::sort(IA.begin(), IA.end(), cmp);
+
+    // Reserve memory space for vector to avoid excess copy - Not necessary need this much of memory
+    JA_Group.reserve(NNZ);
+    JA_Sorted_Idx.reserve(NNZ);
 
     if (_Solver)
     {
