@@ -28,6 +28,8 @@ void dot_product_kernel_unroll(const double* __restrict__ x, const double* __res
 template <int blockDIM> __global__
 void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot);
 
+__global__ void dot_product_kernel_V2_Register_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot);
+
 __global__ void axpy_kernal(const double* __restrict__ x, double* __restrict__ y);
 
 __global__ void axpy_kernal_V2(const double* __restrict__ x1, double* __restrict__ y1, const double* __restrict__ x2, double* __restrict__ y2);
