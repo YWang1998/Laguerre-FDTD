@@ -1,6 +1,8 @@
 #pragma once
 #include "global.h"
 
+#define lanemask 0xFFFFFFFF
+
 static __constant__ int d_Nnode; // length of the vector
 
 static __constant__ double d_scale; // scale of vector-vector addition
