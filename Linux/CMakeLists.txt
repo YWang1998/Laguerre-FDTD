@@ -21,6 +21,13 @@ set(CMAKE_PREFIX_PATH "/opt/intel/oneapi/tbb/2021.13/lib/cmake/tbb")
 
 find_package(GLEW 2.2.0 REQUIRED)
 
+set(BOOST_ROOT "/opt/boost_1_85_0") # change this to your local /path/to/boost folder
+
+find_package(Boost 1.85.0)
+if(Boost_FOUND)
+  include_directories(${Boost_INCLUDE_DIRS})
+endif()
+
 # CUDA Helper Folder
 include_directories(${ProjectFileDir}../Common)
 
