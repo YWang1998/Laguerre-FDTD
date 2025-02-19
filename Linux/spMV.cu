@@ -204,6 +204,135 @@ void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __
 	double temp_sum = 0.0;
 	double temp_dot = 0.0;
 
+	if (tid + 7 * blockDim.x <= d_Nnode)
+	{
+		double a1 = x[tid] * x[tid];
+		double a11 = x[tid] * y[tid];
+
+		double a2 = x[tid + blockDim.x] * x[tid + blockDim.x];
+		double a22 = x[tid + blockDim.x] * y[tid + blockDim.x];
+
+		double a3 = x[tid + 2 * blockDim.x] * x[tid + 2 * blockDim.x];
+		double a33 = x[tid + 2 * blockDim.x] * y[tid + 2 * blockDim.x];
+
+		double a4 = x[tid + 3 * blockDim.x] * x[tid + 3 * blockDim.x];
+		double a44 = x[tid + 3 * blockDim.x] * y[tid + 3 * blockDim.x];
+
+		double a5 = x[tid + 4 * blockDim.x] * x[tid + 4 * blockDim.x];
+		double a55 = x[tid + 4 * blockDim.x] * y[tid + 4 * blockDim.x];
+
+		double a6 = x[tid + 5 * blockDim.x] * x[tid + 5 * blockDim.x];
+		double a66 = x[tid + 5 * blockDim.x] * y[tid + 5 * blockDim.x];
+
+		double a7 = x[tid + 6 * blockDim.x] * x[tid + 6 * blockDim.x];
+		double a77 = x[tid + 6 * blockDim.x] * y[tid + 6 * blockDim.x];
+
+		double a8 = x[tid + 7 * blockDim.x] * x[tid + 7 * blockDim.x];
+		double a88 = x[tid + 7 * blockDim.x] * y[tid + 7 * blockDim.x];
+
+		temp_sum = a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8;
+
+		temp_dot = a11 + a22 + a33 + a44 + a55 + a66 + a77 + a88;
+	}
+	else
+	{
+		unsigned int Grid_num = d_Nnode / (blockDim.x * 8); // integer number of assigned grid with unroll factor of 8
+
+		tid = threadIdx.x + (Grid_num * blockDim.x * 8 + blockDim.x * (blockIdx.x - Grid_num)); // Remaining block will do the dot product without any unroll factor
+
+		if (tid < d_Nnode) temp_sum = x[tid] * x[tid]; temp_dot = x[tid] * y[tid];
+	}
+
+	// x*x dot product
+
+	cache[threadIdx.x] = temp_sum;
+
+	__syncthreads();
+
+	// in-place reduction in shared memory
+	if (blockDIM >= 1024 && threadIdx.x < 512) cache[threadIdx.x] += cache[threadIdx.x + 512];
+	__syncthreads();
+
+	if (blockDIM >= 512 && threadIdx.x < 256) cache[threadIdx.x] += cache[threadIdx.x + 256];
+	__syncthreads();
+
+	if (blockDIM >= 256 && threadIdx.x < 128) cache[threadIdx.x] += cache[threadIdx.x + 128];
+	__syncthreads();
+
+	if (blockDIM >= 128 && threadIdx.x < 64) cache[threadIdx.x] += cache[threadIdx.x + 64];
+	__syncthreads();
+
+	// unrolling warp
+	if (threadIdx.x < 32)
+	{
+		cache[threadIdx.x] += cache[threadIdx.x + 32];
+		cache[threadIdx.x] += cache[threadIdx.x + 16];
+		cache[threadIdx.x] += cache[threadIdx.x + 8];
+		cache[threadIdx.x] += cache[threadIdx.x + 4];
+		cache[threadIdx.x] += cache[threadIdx.x + 2];
+		cache[threadIdx.x] += cache[threadIdx.x + 1];
+	}
+	
+	__syncthreads();
+	
+	if (threadIdx.x == 0) {
+		atomicAdd(sum, cache[0]);
+	}
+
+	__syncthreads();
+
+	cache[threadIdx.x] = temp_dot;
+
+	__syncthreads();
+
+	// in-place reduction in shared memory
+	if (blockDIM >= 1024 && threadIdx.x < 512) cache[threadIdx.x] += cache[threadIdx.x + 512];
+	__syncthreads();
+
+	if (blockDIM >= 512 && threadIdx.x < 256) cache[threadIdx.x] += cache[threadIdx.x + 256];
+	__syncthreads();
+
+	if (blockDIM >= 256 && threadIdx.x < 128) cache[threadIdx.x] += cache[threadIdx.x + 128];
+	__syncthreads();
+
+	if (blockDIM >= 128 && threadIdx.x < 64) cache[threadIdx.x] += cache[threadIdx.x + 64];
+	__syncthreads();
+
+	// unrolling warp
+	if (threadIdx.x < 32)
+	{
+		cache[threadIdx.x] += cache[threadIdx.x + 32];
+		cache[threadIdx.x] += cache[threadIdx.x + 16];
+		cache[threadIdx.x] += cache[threadIdx.x + 8];
+		cache[threadIdx.x] += cache[threadIdx.x + 4];
+		cache[threadIdx.x] += cache[threadIdx.x + 2];
+		cache[threadIdx.x] += cache[threadIdx.x + 1];
+	}
+
+	if (threadIdx.x == 0) {
+		atomicAdd(dot, cache[0]);
+	}
+}
+
+/*
+	Two dot product operations in one kernel launch and use register level reduction
+	Similar performance observed compared to conventional SMEM level reduction when running on RTX 3080 Ti
+	However, one huge limitation is this approach only performs the best when each block has exactly 32 warps of threads
+	Otherwise, the performance is terrible as the warp level reduction does not have enough data to fully utilize the hardware
+*/
+__global__ void dot_product_kernel_V2_Register_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot)
+{
+	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x * 8; // block unroll factor of 8
+
+	__shared__ volatile double cache[32]; // Assume that each block has exactly 32 warps of threads (32*32 = 1024)
+
+	unsigned int warp_ID = threadIdx.x / 32;
+
+	unsigned int lane_ID = threadIdx.x & 31;
+
+	double temp_sum = 0.0;
+	double temp_dot = 0.0;
+
 	// x*x dot product
 
 	if (tid + 7 * blockDim.x <= d_Nnode)
@@ -245,70 +374,45 @@ void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __
 		if (tid < d_Nnode) temp_sum = x[tid] * x[tid]; temp_dot = x[tid] * y[tid];
 	}
 
-	// x*y dot product
-
-	cache[threadIdx.x] = temp_sum;
-
-	__syncthreads();
-
-	// in-place reduction in shared memory
-	if (blockDIM >= 1024 && threadIdx.x < 512) cache[threadIdx.x] += cache[threadIdx.x + 512];
-	__syncthreads();
-
-	if (blockDIM >= 512 && threadIdx.x < 256) cache[threadIdx.x] += cache[threadIdx.x + 256];
-	__syncthreads();
-
-	if (blockDIM >= 256 && threadIdx.x < 128) cache[threadIdx.x] += cache[threadIdx.x + 128];
-	__syncthreads();
-
-	if (blockDIM >= 128 && threadIdx.x < 64) cache[threadIdx.x] += cache[threadIdx.x + 64];
-	__syncthreads();
-
-	// unrolling warp
-	if (threadIdx.x < 32)
+	// Use XOR mode to perform butterfly reduction - Register (Warp) Level
+	for (int i = 16; i >= 1; i /= 2)
 	{
-		cache[threadIdx.x] += cache[threadIdx.x + 32];
-		cache[threadIdx.x] += cache[threadIdx.x + 16];
-		cache[threadIdx.x] += cache[threadIdx.x + 8];
-		cache[threadIdx.x] += cache[threadIdx.x + 4];
-		cache[threadIdx.x] += cache[threadIdx.x + 2];
-		cache[threadIdx.x] += cache[threadIdx.x + 1];
+		temp_sum += __shfl_xor_sync(lanemask, temp_sum, i, 32);
+		temp_dot += __shfl_xor_sync(lanemask, temp_dot, i, 32);
 	}
 
-	if (threadIdx.x == 0) {
-		atomicAdd(sum, cache[0]);
-	}
-
-	cache[threadIdx.x] = temp_dot;
+	// x*x dot product - SMEM Level, allowing only 1 thread per every warp to write to the SMEM
+	if (lane_ID)	cache[warp_ID] = temp_sum;
 
 	__syncthreads();
 
-	// in-place reduction in shared memory
-	if (blockDIM >= 1024 && threadIdx.x < 512) cache[threadIdx.x] += cache[threadIdx.x + 512];
-	__syncthreads();
-
-	if (blockDIM >= 512 && threadIdx.x < 256) cache[threadIdx.x] += cache[threadIdx.x + 256];
-	__syncthreads();
-
-	if (blockDIM >= 256 && threadIdx.x < 128) cache[threadIdx.x] += cache[threadIdx.x + 128];
-	__syncthreads();
-
-	if (blockDIM >= 128 && threadIdx.x < 64) cache[threadIdx.x] += cache[threadIdx.x + 64];
-	__syncthreads();
-
-	// unrolling warp
-	if (threadIdx.x < 32)
+	// Another register (Warp) level reduction
+	if (!warp_ID)
 	{
-		cache[threadIdx.x] += cache[threadIdx.x + 32];
-		cache[threadIdx.x] += cache[threadIdx.x + 16];
-		cache[threadIdx.x] += cache[threadIdx.x + 8];
-		cache[threadIdx.x] += cache[threadIdx.x + 4];
-		cache[threadIdx.x] += cache[threadIdx.x + 2];
-		cache[threadIdx.x] += cache[threadIdx.x + 1];
+		double final_sum = cache[threadIdx.x];
+		for (int i = 16; i >= 1; i /= 2)
+			final_sum += __shfl_xor_sync(lanemask, final_sum, i, 32);
+
+		if (threadIdx.x == 0)
+			atomicAdd(sum, final_sum);
 	}
 
-	if (threadIdx.x == 0) {
-		atomicAdd(dot, cache[0]);
+	__syncthreads(); // Needs to sync SMEM to prevent race condition
+
+	// x*y dot product - SMEM Level, allowing only 1 thread per every warp to write to the SMEM
+	if (lane_ID)	cache[warp_ID] = temp_dot;
+
+	__syncthreads();
+
+	// Another register (Warp) level reduction
+	if (!warp_ID)
+	{
+		double final_dot = cache[threadIdx.x];
+		for (int i = 16; i >= 1; i /= 2)
+			final_dot += __shfl_xor_sync(lanemask, final_dot, i, 32);
+
+		if (threadIdx.x == 0)
+			atomicAdd(dot, final_dot);
 	}
 }
 
