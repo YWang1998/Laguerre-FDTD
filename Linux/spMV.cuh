@@ -7,6 +7,8 @@
 
 #include "global.h"
 
+#define lanemask 0xFFFFFFFF
+
 static __constant__ INTEGER d_Nnode; // length of the vector
 
 static __constant__ double d_scale; // scale of vector-vector addition
@@ -33,6 +35,8 @@ void dot_product_kernel_unroll(const double* __restrict__ x, const double* __res
 
 template <int blockDIM> __global__
 void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot);
+
+__global__ void dot_product_kernel_V2_Register_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot);
 
 __global__ void axpy_kernal(const double* __restrict__ x, double* __restrict__ y);
 
