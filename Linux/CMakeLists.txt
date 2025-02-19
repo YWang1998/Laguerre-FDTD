@@ -31,6 +31,10 @@ endif()
 # CUDA Helper Folder
 include_directories(${ProjectFileDir}../Common)
 
+# GLM Folder
+include_directories(${ProjectFileDir}../Dependencies/GLM/include)
+link_directories(${ProjectFileDir}../Dependencies/GLM/lib)
+
 set(ENV{MKLROOT} "/opt/intel/oneapi/mkl/2024.2")
 
 find_package(MKL CONFIG REQUIRED PATHS $ENV{MKLROOT})
