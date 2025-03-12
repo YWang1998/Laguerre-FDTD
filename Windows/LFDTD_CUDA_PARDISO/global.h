@@ -45,7 +45,7 @@ Header file that contains all the global types and parameters declaration
 typedef boost::multi_array<int, 4> node_array_type; // nodeNum 4D matrix
 typedef boost::multi_array<double, 3> double_array_type; // double 3D matrix
 
-enum Solver
+enum class Solver
 {
     _PARDISO = 0,
     _cuSPARSE,
@@ -53,7 +53,7 @@ enum Solver
     _CUDA_Expanded
 };
 
-enum Precon
+enum class Precon
 {
     None = 1,       // No preconditioner
     Jacobi = 2,     // Jacobi Preconditioner
