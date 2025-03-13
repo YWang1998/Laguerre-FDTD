@@ -26,7 +26,7 @@ void LFDTD::PrintQ_set(int i)
 void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
 {
 
-    if (_Solver)
+    if (static_cast<int>(_Solver))
     {
         printf("Constructing Sparse Matrix A ...\n");
 
@@ -802,11 +802,6 @@ void LFDTD::SparseA_COO(const LFDTD_Coe& Coe)
     }
     else
     {
-        // Reserve memory space for vector to avoid excess copy - Not necessary need this much of memory
-        IA.reserve(13 * Nnode);
-        JA.reserve(13 * Nnode);
-        VAL.reserve(13 * Nnode);
-        
         printf("Constructing Sparse Matrix A ...\n");
         // Ex equations
         for (int i = 0; i < Coe.nx; ++i)
@@ -1479,16 +1474,16 @@ void LFDTD::Solver_Select()
     switch (Solver_select)
     {
     case 1:
-        _Solver = _PARDISO;
+        _Solver = Solver::_PARDISO;
         break;
     case 2:
-        _Solver = _cuSPARSE;
+        _Solver = Solver::_cuSPARSE;
         break;
     case 3:
-        _Solver = _CUDA;
+        _Solver = Solver::_CUDA;
         break;
     case 4:
-        _Solver = _CUDA_Expanded;
+        _Solver = Solver::_CUDA_Expanded;
         break;
     default:
         std::cerr << "No valid solver matches input selection!" << std::endl;;
@@ -1497,25 +1492,25 @@ void LFDTD::Solver_Select()
         break;
     }
 
-    if (_Solver)
+    if (static_cast<int>(_Solver))
     {
         std::cout << "Please select the preconditioner: [1] - None, [2] - Jacobi, [3] - Laguerre" << std::endl;
         std::cin >> Precon_select;
         switch (Precon_select)
         {
         case 1:
-            _M = None;
+            _M = Precon::None;
             break;
         case 2:
-            _M = Jacobi;
+            _M = Precon::Jacobi;
             break;
         case 3:
-            _M = Laguerre;
+            _M = Precon::Laguerre;
             break;
         default:
             std::cout << "No valid preconditioner matches input selection!" << std::endl;
             std::cout << "Default to Jacobi Preconditioner for solving." << std::endl;
-            _M = Jacobi;
+            _M = Precon::Jacobi;
             break;
         }
     }
@@ -1536,7 +1531,7 @@ void LFDTD::COO2CSR()
     JA_Group.reserve(NNZ);
     JA_Sorted_Idx.reserve(NNZ);
 
-    if (_Solver)
+    if (static_cast<int>(_Solver))
     {
         for (int i = 0; i < NNZ - 1; ++i)
         {
@@ -1642,7 +1637,7 @@ void LFDTD::COO2CSR()
         checkCudaErrors(cudaMalloc((void**)&d_ASsj, sizeof(double)));
         checkCudaErrors(cudaMalloc((void**)&d_rjjr0, sizeof(double)));
 
-        if (_M == None)
+        if (_M == Precon::None)
         {
             printf("Solving Ax=b without Preconditioner M\n");
 
@@ -1659,7 +1654,7 @@ void LFDTD::COO2CSR()
                 &bufferSizeAS));
             checkCudaErrors(cudaMalloc(&d_bufferSizeAS, bufferSizeAS));
         }
-        else if (_M == Jacobi)
+        else if (_M == Precon::Jacobi)
         {
 
             printf("Solving Ax=b with Jacobi Preconditioner D\n");
@@ -1712,7 +1707,7 @@ void LFDTD::COO2CSR()
                 &bufferSizeAS));
             checkCudaErrors(cudaMalloc(&d_bufferSizeAS, bufferSizeAS));
         }
-        else if (_M == Laguerre)
+        else if (_M == Precon::Laguerre)
         {
 
             printf("Solving Ax=b with Proposed Preconditioner I\n");
@@ -2082,8 +2077,8 @@ void LFDTD::BiCGSTABL_M_Solver()
 /* spMV for A* b uses cuSPARSE Library - Ideal for 30 series GPU model (Test on 3080TI) */
 void LFDTD::BiCGSTABL_M_Kernel_Solver()
 {
-    dim3 grid(Nnode / (8 * warp) + 1, 1, 1);
-    dim3 block(8 * warp, 1, 1);
+    dim3 grid(Nnode / (16 * warp) + 1, 1, 1);
+    dim3 block(16 * warp, 1, 1);
 
     /* Initialize r0 = b - A*x0  on GPU (Assume the initial guess x0 is zero) */
 
@@ -2116,6 +2111,15 @@ void LFDTD::BiCGSTABL_M_Kernel_Solver()
             // P_{j+1} = r_{j+1} + beta_j * (P_j - omega_j*AP_j)
             cuBLAS::p_update(grid, block, d_p, d_AP, d_r, omega, beta);
 
+            /* P_j = P_j - W_j*AP_j */
+            //cuBLAS::axpy(grid, block, d_AP, d_p, nomega);
+            //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &nomega, d_AP, 1, d_p, 1));
+            /* P_j = b_j * P_j */
+            //checkCudaErrors(cublasDscal(cublasHandle, Nnode, &beta, d_p, 1));
+            /* P_{j+1} = r_{j+1} + P_j */
+            //cuBLAS::axpy(grid, block, d_r, d_p, doubleone);
+            //checkCudaErrors(cublasDaxpy(cublasHandle, Nnode, &doubleone, d_r, 1, d_p, 1));
+
         }
 
         rjr0 = (*h_rjjr0);
@@ -2141,16 +2145,14 @@ void LFDTD::BiCGSTABL_M_Kernel_Solver()
         cuBLAS::dot_product(grid, block, d_AP, d_r0, h_APr0.get(), d_APr0);
 
         alpha = rjr0 / (*h_APr0);
-        nalpha = -alpha;
+        //nalpha = -alpha;
 
-        
         // r_j = r_j - alpha*AP_j
         //cuBLAS::axpy(grid, block, d_AP, d_r, nalpha);
 
         // x_{j+1} = x_j + alpha*MP_j
         //cuBLAS::axpy(grid, block, d_MP, d_x, alpha);
         
-
         /*
             x_{j+1} = x_j + alpha*MP_j
             r_j = r_j - alpha*AP_j
@@ -2189,13 +2191,12 @@ void LFDTD::BiCGSTABL_M_Kernel_Solver()
 
         /* omega = (AS_j, S_j(r_j) )/(AS_j, AS_j ) */
         omega = (*h_ASsj) / (*h_ASAS);
-
-        /*
+        //nomega = -omega;
+        
         //x_{j+1} = x_j + omega*MS_j(Mr_j)
-        cuBLAS::axpy(grid, block, d_MS, d_x, omega);
+        //cuBLAS::axpy(grid, block, d_MS, d_x, omega);
         // r_{j+1} = S_j(r_j) - omega*AS_j
-        cuBLAS::axpy(grid, block, d_AS, d_r, nomega);
-        */
+        //cuBLAS::axpy(grid, block, d_AS, d_r, nomega);
 
         /*
             x_{j+1} = x_j + omega*MS_j(Mr_j)
@@ -2608,8 +2609,6 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
 
 
         // Build b vector
-
-        // std::fill_n(b.get(), Nnode, 0.0); // Clear b vector     
 
         // Ex equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
@@ -3063,8 +3062,6 @@ void LFDTD::Intel_PARDISO(LFDTD_Coe& Coe)
     phase = -1;           /* Release internal memory. */
     PARDISO(pt, &maxfct, &mnum, &mtype, &phase, &Nnode, &ddum, ia.get(), ja.get(), &idum, &nrhs, iparm, &msglvl, &ddum, &ddum, &error);
 
-    std::fill_n(sumE.get(), Nnode, 0.0);
-    std::fill_n(lagPoly_sum.get(), Coe.tStep, 0.0);
 }
 
 void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
@@ -3079,9 +3076,6 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
     lagPoly = std::make_unique<double[]>(4 * Coe.tStep);
     lagPoly_sum = std::make_unique<double[]>(Coe.tStep);
     vtg = std::make_unique<double[]>(Coe.tStep);
-
-    checkCudaErrors(cudaMallocHost((void**)&b_pinned, Nnode * sizeof(double)));
-    checkCudaErrors(cudaMallocHost((void**)&x_pinned, Nnode * sizeof(double)));
 
     /* This will pick the best possible CUDA capable device */
     cudaDeviceProp deviceProp;
@@ -3113,17 +3107,17 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
     int Pos, q(0);
     double jq(0);
 
-    if (_M == None)
+    if (_M == Precon::None)
     {
         iter_ptr = &LFDTD::BiCGSTABL_Solver;
     }
     else
     {
-        if (_Solver == _cuSPARSE)
+        if (_Solver == Solver::_cuSPARSE)
         {
             iter_ptr = &LFDTD::BiCGSTABL_M_Solver;
         }
-        else if (_Solver == _CUDA)
+        else if (_Solver == Solver::_CUDA)
         {
             cuBLAS::get_const_int_symbol(Nnode);
             iter_ptr = &LFDTD::BiCGSTABL_M_Kernel_Solver;
@@ -3224,9 +3218,6 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
 
         // Build b vector
-
-        // std::fill_n(b_pinned, Nnode, 0.0); // Clear b vector   
-        // std::fill_n(x_pinned, Nnode, 0.0); // Clear x vector  
 
         // Ex equation except outmost PEC boundary
         // No re-assignment of b value for outmost PEC boundary
@@ -3622,6 +3613,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
             printf("\n");
         }
 
+        /*
         for (int n = 0; n < Coe.num_probe; ++n)
         {
             std::fill_n(vtg.get(), Coe.tStep, 0.0);
@@ -3647,7 +3639,7 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
             }
             Pos = Coe._nodeNum[Coe._probeCell[n * 6 + 0] - 1][Coe._probeCell[n * 6 + 2] - 1][Coe._probeCell[n * 6 + 4] - 1][2];
             recordEq[q + n * (Coe.qstop + 1)] = x[Pos];
-        }
+        }*/
 
         ++q;
     }
@@ -3657,9 +3649,6 @@ void LFDTD::Nvidia_CUDA(LFDTD_Coe& Coe)
 
     printf("Simulation ends with total %d orders solved!\n", Coe.qstop);
     printf("Elapsed time: %lld  milliseconds.\n", elapsed_time);
-
-    std::fill_n(sumE.get(), Nnode, 0.0);
-    std::fill_n(lagPoly_sum.get(), Coe.tStep, 0.0);
 }
 
 void LFDTD::Convergence_Profiler(const std::string& InputFile)
