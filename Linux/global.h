@@ -47,7 +47,7 @@
 typedef boost::multi_array<INTEGER, 4> node_array_type; // nodeNum 4D matrix
 typedef boost::multi_array<double, 3> double_array_type; // double 3D matrix
 
-enum class Solver
+enum Solver
 {
     _PARDISO = 0,
     _cuSPARSE,
@@ -55,7 +55,7 @@ enum class Solver
     _CUDA_Expanded
 };
 
-enum class Precon
+enum Precon
 {
     None = 1,       // No preconditioner
     Jacobi = 2,     // Jacobi Preconditioner
