@@ -61,7 +61,7 @@ public:
     ~LFDTD()
     {
         /* Destroy contexts */
-        if (_Solver)
+        if (static_cast<int>(_Solver))
         {
 
             checkCudaErrors(cudaFreeHost(x_pinned));
@@ -69,7 +69,7 @@ public:
 
             checkCudaErrors(cusparseDestroy(cusparseHandle));
             checkCudaErrors(cublasDestroy(cublasHandle));
-            if (_Solver == _CUDA_Expanded)
+            if (_Solver == Solver::_CUDA_Expanded)
             {
                 checkCudaErrors(cudaFree(spMV_buffer));
                 checkCudaErrors(cudaFree(d_a_expanded));
