@@ -3,6 +3,14 @@
 
 #define lanemask 0xFFFFFFFF
 
+static __constant__ int d_Nnode; // length of the vector
+
+static __constant__ double d_scale; // scale of vector-vector addition
+
+static __constant__ double d_omega; // scale of vector-vector addition
+
+static __constant__ double d_beta; // scale of vector-vector addition
+
 /* Perform preconditioner matrix vector multiplication - a stream kernel with 2X improvement over cusparse APi */
 template <typename T> __global__
 void spMV_M_kernel(const T* d_M, const T* d_V, T* d_target);
