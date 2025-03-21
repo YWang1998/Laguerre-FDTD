@@ -1,7 +1,8 @@
 #include "spMV.cuh"
 
 /* Perform preconditioner matrix vector multiplication - a stream kernel with 2X improvement over cusparse APi */
-__global__ void spMV_M_kernel(const double* d_M, const double* d_V, double* d_target)
+template <typename T> __global__
+void spMV_M_kernel(const T* d_M, const T* d_V, T* d_target)
 
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -10,22 +11,18 @@ __global__ void spMV_M_kernel(const double* d_M, const double* d_V, double* d_ta
 	{
 		d_target[tid] = d_M[tid] * d_V[tid];
 	}
-
 }
 
 
 /* Perform large global uncoalsed sparse matrix vector multiplication with summed spMV output */
-template <int blockDIM> __global__
-void spMV_sparse(const double* __restrict__ a_expand,
-	const int* __restrict__ ja_expand,
-	const double* __restrict__ v,
-	double* __restrict__ v_expand,
-	double* __restrict__ spMV)
+template <int blockDIM, typename T> __global__
+void spMV_sparse(const T* __restrict__ a_expand, const int* __restrict__ ja_expand,
+	const T* __restrict__ v, T* __restrict__ v_expand, T* __restrict__ spMV)
 {
 	unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
 	unsigned int lane = tid & 31; // lane ID within a warp
 
-	__shared__ volatile double cache[blockDIM];
+	__shared__ volatile T cache[blockDIM];
 
 	if (tid < d_Nnode * 16)
 	{
@@ -46,13 +43,13 @@ void spMV_sparse(const double* __restrict__ a_expand,
 
 }
 
-
 /* spMV kernel with one thread per row - comparable with cusparseSpMV APi */
-__global__ void spMV_thread_kernel(const int* d_ia, const int* d_ja, const double* d_val, const double* x, double* y)
+template <typename T>
+__global__ void spMV_thread_kernel(const int* d_ia, const int* d_ja, const T* d_val, const T* x, T* y)
 {
 	int row = blockDim.x * blockIdx.x + threadIdx.x;
 	if (row < d_Nnode) {
-		double dot = 0;
+		T dot = 0;
 		int row_start = d_ia[row];
 		int row_end = d_ia[row + 1];
 		for (int jj = row_start; jj < row_end; jj++)
@@ -62,10 +59,10 @@ __global__ void spMV_thread_kernel(const int* d_ia, const int* d_ja, const doubl
 }
 
 /* spMV kernel with one warp (32 thread) per row - poor performance */
-template <int blockDIM> __global__
-void spMV_warp_kernel(const int* d_ia, const int* d_ja, const double* d_val, const double* x, double* y)
+template <int blockDIM, typename T> __global__
+void spMV_warp_kernel(const int* d_ia, const int* d_ja, const T* d_val, const T* x, T* y)
 {
-	__shared__ double vals[blockDIM];
+	__shared__ T vals[blockDIM];
 
 	int thread_id = blockDim.x * blockIdx.x + threadIdx.x; // global thread index 
 	int warp_id = thread_id / 32; // global warp index 
@@ -91,11 +88,12 @@ void spMV_warp_kernel(const int* d_ia, const int* d_ja, const double* d_val, con
 }
 
 /* Fully looped dot product kernal with shared memory function - poor performance */
-__global__ void dot_product_kernel(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ dot)
+template <typename T> __global__
+void dot_product_kernel(const T* __restrict__ x, const T* __restrict__ y, T* __restrict__ dot)
 {
 	unsigned int index = threadIdx.x + blockDim.x * blockIdx.x;
 
-	extern __shared__ double cache[];
+	extern __shared__ T cache[];
 
 	cache[threadIdx.x] = x[index] * y[index];
 
@@ -121,25 +119,25 @@ __global__ void dot_product_kernel(const double* __restrict__ x, const double* _
 	Runtime performance beats cublasDdot api on Nsight compute in release mode
 	cublasDdot api performance is invariant to debug/release mode, which means the optimization is already done by Nvidia build-in api function
 */
-template <int blockDIM> __global__
-void dot_product_kernel_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ dot)
+template <int blockDIM, typename T> __global__
+void dot_product_kernel_unroll(const T* __restrict__ x, const T* __restrict__ y, T* __restrict__ dot)
 {
 	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x * 8; // block unroll factor of 8
 
-	__shared__ volatile double cache[blockDIM]; // dynamically allocate the shared memory according to block size
+	__shared__ volatile T cache[blockDIM]; // dynamically allocate the shared memory according to block size
 
-	double temp = 0.0;
+	T temp = 0.0;
 
 	if (tid + 7 * blockDim.x <= d_Nnode)
 	{
-		double a1 = x[tid] * y[tid];
-		double a2 = x[tid + blockDim.x] * y[tid + blockDim.x];
-		double a3 = x[tid + 2 * blockDim.x] * y[tid + 2 * blockDim.x];
-		double a4 = x[tid + 3 * blockDim.x] * y[tid + 3 * blockDim.x];
-		double a5 = x[tid + 4 * blockDim.x] * y[tid + 4 * blockDim.x];
-		double a6 = x[tid + 5 * blockDim.x] * y[tid + 5 * blockDim.x];
-		double a7 = x[tid + 6 * blockDim.x] * y[tid + 6 * blockDim.x];
-		double a8 = x[tid + 7 * blockDim.x] * y[tid + 7 * blockDim.x];
+		auto a1 = x[tid] * y[tid];
+		auto a2 = x[tid + blockDim.x] * y[tid + blockDim.x];
+		auto a3 = x[tid + 2 * blockDim.x] * y[tid + 2 * blockDim.x];
+		auto a4 = x[tid + 3 * blockDim.x] * y[tid + 3 * blockDim.x];
+		auto a5 = x[tid + 4 * blockDim.x] * y[tid + 4 * blockDim.x];
+		auto a6 = x[tid + 5 * blockDim.x] * y[tid + 5 * blockDim.x];
+		auto a7 = x[tid + 6 * blockDim.x] * y[tid + 6 * blockDim.x];
+		auto a8 = x[tid + 7 * blockDim.x] * y[tid + 7 * blockDim.x];
 
 		temp = a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8;
 	}
@@ -188,41 +186,43 @@ void dot_product_kernel_unroll(const double* __restrict__ x, const double* __res
 /*
 	Two dot product operations in one kernel launch
 */
-template <int blockDIM> __global__
-void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot)
+template <int blockDIM, typename T> __global__
+void dot_product_kernel_V2_unroll(const T* __restrict__ x, const T* __restrict__ y, T* __restrict__ sum, T* __restrict__ dot)
 {
 	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x * 8; // block unroll factor of 8
 
-	__shared__ volatile double cache[blockDIM]; // dynamically allocate the shared memory according to block size
+	__shared__ volatile T cache[blockDIM]; // dynamically allocate the shared memory according to block size
 
-	double temp_sum = 0.0;
-	double temp_dot = 0.0;
+	T temp_sum = 0.0;
+	T temp_dot = 0.0;
+
+	// x*x dot product
 
 	if (tid + 7 * blockDim.x <= d_Nnode)
 	{
-		double a1 = x[tid] * x[tid];
-		double a11 = x[tid] * y[tid];
+		auto a1 = x[tid] * x[tid];
+		auto a11 = x[tid] * y[tid];
 
-		double a2 = x[tid + blockDim.x] * x[tid + blockDim.x];
-		double a22 = x[tid + blockDim.x] * y[tid + blockDim.x];
+		auto a2 = x[tid + blockDim.x] * x[tid + blockDim.x];
+		auto a22 = x[tid + blockDim.x] * y[tid + blockDim.x];
 
-		double a3 = x[tid + 2 * blockDim.x] * x[tid + 2 * blockDim.x];
-		double a33 = x[tid + 2 * blockDim.x] * y[tid + 2 * blockDim.x];
+		auto a3 = x[tid + 2 * blockDim.x] * x[tid + 2 * blockDim.x];
+		auto a33 = x[tid + 2 * blockDim.x] * y[tid + 2 * blockDim.x];
 
-		double a4 = x[tid + 3 * blockDim.x] * x[tid + 3 * blockDim.x];
-		double a44 = x[tid + 3 * blockDim.x] * y[tid + 3 * blockDim.x];
+		auto a4 = x[tid + 3 * blockDim.x] * x[tid + 3 * blockDim.x];
+		auto a44 = x[tid + 3 * blockDim.x] * y[tid + 3 * blockDim.x];
 
-		double a5 = x[tid + 4 * blockDim.x] * x[tid + 4 * blockDim.x];
-		double a55 = x[tid + 4 * blockDim.x] * y[tid + 4 * blockDim.x];
+		auto a5 = x[tid + 4 * blockDim.x] * x[tid + 4 * blockDim.x];
+		auto a55 = x[tid + 4 * blockDim.x] * y[tid + 4 * blockDim.x];
 
-		double a6 = x[tid + 5 * blockDim.x] * x[tid + 5 * blockDim.x];
-		double a66 = x[tid + 5 * blockDim.x] * y[tid + 5 * blockDim.x];
+		auto a6 = x[tid + 5 * blockDim.x] * x[tid + 5 * blockDim.x];
+		auto a66 = x[tid + 5 * blockDim.x] * y[tid + 5 * blockDim.x];
 
-		double a7 = x[tid + 6 * blockDim.x] * x[tid + 6 * blockDim.x];
-		double a77 = x[tid + 6 * blockDim.x] * y[tid + 6 * blockDim.x];
+		auto a7 = x[tid + 6 * blockDim.x] * x[tid + 6 * blockDim.x];
+		auto a77 = x[tid + 6 * blockDim.x] * y[tid + 6 * blockDim.x];
 
-		double a8 = x[tid + 7 * blockDim.x] * x[tid + 7 * blockDim.x];
-		double a88 = x[tid + 7 * blockDim.x] * y[tid + 7 * blockDim.x];
+		auto a8 = x[tid + 7 * blockDim.x] * x[tid + 7 * blockDim.x];
+		auto a88 = x[tid + 7 * blockDim.x] * y[tid + 7 * blockDim.x];
 
 		temp_sum = a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8;
 
@@ -237,7 +237,7 @@ void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __
 		if (tid < d_Nnode) temp_sum = x[tid] * x[tid]; temp_dot = x[tid] * y[tid];
 	}
 
-	// x*x dot product
+	// x*y dot product
 
 	cache[threadIdx.x] = temp_sum;
 
@@ -266,14 +266,10 @@ void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __
 		cache[threadIdx.x] += cache[threadIdx.x + 2];
 		cache[threadIdx.x] += cache[threadIdx.x + 1];
 	}
-	
-	__syncthreads();
-	
+
 	if (threadIdx.x == 0) {
 		atomicAdd(sum, cache[0]);
 	}
-
-	__syncthreads();
 
 	cache[threadIdx.x] = temp_dot;
 
@@ -308,112 +304,11 @@ void dot_product_kernel_V2_unroll(const double* __restrict__ x, const double* __
 	}
 }
 
-/*
-	Two dot product operations in one kernel launch and use register level reduction
-	Similar performance observed compared to conventional SMEM level reduction when running on RTX 3080 Ti
-	However, one huge limitation is this approach only performs the best when each block has exactly 32 warps of threads
-	Otherwise, the performance is terrible as the warp level reduction does not have enough data to fully utilize the hardware
-*/
-__global__ void dot_product_kernel_V2_Register_unroll(const double* __restrict__ x, const double* __restrict__ y, double* __restrict__ sum, double* __restrict__ dot)
-{
-	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x * 8; // block unroll factor of 8
-
-	__shared__ volatile double cache[32]; // Assume that each block has exactly 32 warps of threads (32*32 = 1024)
-
-	unsigned int warp_ID = threadIdx.x / 32;
-
-	unsigned int lane_ID = threadIdx.x & 31;
-
-	double temp_sum = 0.0;
-	double temp_dot = 0.0;
-
-	// x*x dot product
-
-	if (tid + 7 * blockDim.x <= d_Nnode)
-	{
-		double a1 = x[tid] * x[tid];
-		double a11 = x[tid] * y[tid];
-
-		double a2 = x[tid + blockDim.x] * x[tid + blockDim.x];
-		double a22 = x[tid + blockDim.x] * y[tid + blockDim.x];
-
-		double a3 = x[tid + 2 * blockDim.x] * x[tid + 2 * blockDim.x];
-		double a33 = x[tid + 2 * blockDim.x] * y[tid + 2 * blockDim.x];
-
-		double a4 = x[tid + 3 * blockDim.x] * x[tid + 3 * blockDim.x];
-		double a44 = x[tid + 3 * blockDim.x] * y[tid + 3 * blockDim.x];
-
-		double a5 = x[tid + 4 * blockDim.x] * x[tid + 4 * blockDim.x];
-		double a55 = x[tid + 4 * blockDim.x] * y[tid + 4 * blockDim.x];
-
-		double a6 = x[tid + 5 * blockDim.x] * x[tid + 5 * blockDim.x];
-		double a66 = x[tid + 5 * blockDim.x] * y[tid + 5 * blockDim.x];
-
-		double a7 = x[tid + 6 * blockDim.x] * x[tid + 6 * blockDim.x];
-		double a77 = x[tid + 6 * blockDim.x] * y[tid + 6 * blockDim.x];
-
-		double a8 = x[tid + 7 * blockDim.x] * x[tid + 7 * blockDim.x];
-		double a88 = x[tid + 7 * blockDim.x] * y[tid + 7 * blockDim.x];
-
-		temp_sum = a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8;
-
-		temp_dot = a11 + a22 + a33 + a44 + a55 + a66 + a77 + a88;
-	}
-	else
-	{
-		unsigned int Grid_num = d_Nnode / (blockDim.x * 8); // integer number of assigned grid with unroll factor of 8
-
-		tid = threadIdx.x + (Grid_num * blockDim.x * 8 + blockDim.x * (blockIdx.x - Grid_num)); // Remaining block will do the dot product without any unroll factor
-
-		if (tid < d_Nnode) temp_sum = x[tid] * x[tid]; temp_dot = x[tid] * y[tid];
-	}
-
-	// Use XOR mode to perform butterfly reduction - Register (Warp) Level
-	for (int i = 16; i >= 1; i /= 2)
-	{
-		temp_sum += __shfl_xor_sync(lanemask, temp_sum, i, 32);
-		temp_dot += __shfl_xor_sync(lanemask, temp_dot, i, 32);
-	}
-
-	// x*x dot product - SMEM Level, allowing only 1 thread per every warp to write to the SMEM
-	if (lane_ID)	cache[warp_ID] = temp_sum;
-
-	__syncthreads();
-
-	// Another register (Warp) level reduction
-	if (!warp_ID)
-	{
-		double final_sum = cache[threadIdx.x];
-		for (int i = 16; i >= 1; i /= 2)
-			final_sum += __shfl_xor_sync(lanemask, final_sum, i, 32);
-
-		if (threadIdx.x == 0)
-			atomicAdd(sum, final_sum);
-	}
-
-	__syncthreads(); // Needs to sync SMEM to prevent race condition
-
-	// x*y dot product - SMEM Level, allowing only 1 thread per every warp to write to the SMEM
-	if (lane_ID)	cache[warp_ID] = temp_dot;
-
-	__syncthreads();
-
-	// Another register (Warp) level reduction
-	if (!warp_ID)
-	{
-		double final_dot = cache[threadIdx.x];
-		for (int i = 16; i >= 1; i /= 2)
-			final_dot += __shfl_xor_sync(lanemask, final_dot, i, 32);
-
-		if (threadIdx.x == 0)
-			atomicAdd(dot, final_dot);
-	}
-}
-
 /*  y = a*x + y
 	similar performance of cublasDaxpy, can be used inter-changeably
 */
-__global__ void axpy_kernal(const double* __restrict__ x, double* __restrict__ y)
+template <typename T> __global__
+void axpy_kernal(const T* __restrict__ x, T* __restrict__ y)
 {
 	unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -428,7 +323,8 @@ __global__ void axpy_kernal(const double* __restrict__ x, double* __restrict__ y
 	1. y1 += scale * x1
 	2. y2 -= scale * x2
 */
-__global__ void axpy_kernal_V2(const double* __restrict__ x1, double* __restrict__ y1, const double* __restrict__ x2, double* __restrict__ y2)
+template <typename T> __global__
+void axpy_kernal_V2(const T* __restrict__ x1, T* __restrict__ y1, const T* __restrict__ x2, T* __restrict__ y2)
 {
 	unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -442,7 +338,8 @@ __global__ void axpy_kernal_V2(const double* __restrict__ x1, double* __restrict
 /*
 	This kernel combines the operation for P_{j+1} = r_{j+1} + beta_j * (P_j - omega_j*AP_j)
 */
-__global__ void p_update_kernel(double* __restrict__ P, const double* __restrict__ AP, const double* __restrict__ r)
+template <typename T> __global__
+void p_update_kernel(T* __restrict__ P, const T* __restrict__ AP, const T* __restrict__ r)
 {
 	unsigned int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -450,30 +347,31 @@ __global__ void p_update_kernel(double* __restrict__ P, const double* __restrict
 	{
 		P[tid] = r[tid] + d_beta * (P[tid] - d_omega * AP[tid]);
 	}
+
 }
 
 /*
 	More than 2 - 3X improvement over cublas APi due to removal of multi-mode computation
 */
-template <int blockDIM> __global__ 
-void nrm2_kernel_unroll(const double* __restrict__ x, double* __restrict__ sum)
+template <int blockDIM, typename T> __global__
+void nrm2_kernel_unroll(const T* __restrict__ x, T* __restrict__ sum)
 {
 	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x * 8; // block unroll factor of 8
 
-	__shared__ volatile double cache[blockDIM]; // dynamically allocate the shared memory according to block size
+	__shared__ volatile T cache[blockDIM]; // dynamically allocate the shared memory according to block size
 
-	double temp = 0.0;
+	T temp = 0.0;
 
 	if (tid + 7 * blockDim.x <= d_Nnode)
 	{
-		double a1 = x[tid] * x[tid];
-		double a2 = x[tid + blockDim.x] * x[tid + blockDim.x];
-		double a3 = x[tid + 2 * blockDim.x] * x[tid + 2 * blockDim.x];
-		double a4 = x[tid + 3 * blockDim.x] * x[tid + 3 * blockDim.x];
-		double a5 = x[tid + 4 * blockDim.x] * x[tid + 4 * blockDim.x];
-		double a6 = x[tid + 5 * blockDim.x] * x[tid + 5 * blockDim.x];
-		double a7 = x[tid + 6 * blockDim.x] * x[tid + 6 * blockDim.x];
-		double a8 = x[tid + 7 * blockDim.x] * x[tid + 7 * blockDim.x];
+		auto a1 = x[tid] * x[tid];
+		auto a2 = x[tid + blockDim.x] * x[tid + blockDim.x];
+		auto a3 = x[tid + 2 * blockDim.x] * x[tid + 2 * blockDim.x];
+		auto a4 = x[tid + 3 * blockDim.x] * x[tid + 3 * blockDim.x];
+		auto a5 = x[tid + 4 * blockDim.x] * x[tid + 4 * blockDim.x];
+		auto a6 = x[tid + 5 * blockDim.x] * x[tid + 5 * blockDim.x];
+		auto a7 = x[tid + 6 * blockDim.x] * x[tid + 6 * blockDim.x];
+		auto a8 = x[tid + 7 * blockDim.x] * x[tid + 7 * blockDim.x];
 
 		temp = a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8;
 	}
@@ -521,205 +419,289 @@ void nrm2_kernel_unroll(const double* __restrict__ x, double* __restrict__ sum)
 	}
 }
 
+template <typename T> __global__
+void Dscal_kernel(T* d_target)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
-namespace cuBLAS {
+	if (tid < d_Nnode)
+	{
+		d_target[tid] *= d_scale;
+	}
+}
 
-	/* Return matrix X vector = d_Target vector on device */
-	void spMV_M(dim3& Grid, dim3& Block, const double* d_M, const double* d_V, double* d_Target)
+template <typename T> __global__
+void Dcopy_kernel(const T* d_source, T* d_target) 
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < d_Nnode)
+	{
+		d_target[tid] = d_source[tid];
+	}
+}
+
+namespace cuBLAS
+{
+	template <typename T>
+	void spMV_M(dim3& Grid, dim3& Block, const T* d_M, const T* d_V, T* d_Target)
 	{
 
-		spMV_M_kernel << <Grid, Block >> > (d_M, d_V, d_Target);
+		spMV_M_kernel <T> << <Grid, Block >> > (d_M, d_V, d_Target);
 
 	}
 
+	template <typename T>
 	void spMV(dim3& Grid, dim3& Block,
-		const double* d_a_expand,
+		const T* d_a_expand,
 		const int* d_ja_expand,
-		const double* d_v, double* d_v_expanded, double* d_spMV)
+		const T* d_v, T* d_v_expanded, T* d_spMV)
 	{
 		switch (Block.x)
 		{
+
 		case 1024:
-			spMV_sparse <1024> << <Grid, Block >> > (d_a_expand, d_ja_expand, d_v, d_v_expanded, d_spMV);
+			spMV_sparse <1024, T> << <Grid, Block >> > (d_a_expand, d_ja_expand, d_v, d_v_expanded, d_spMV);
 			break;
 		case 512:
-			spMV_sparse <512> << <Grid, Block >> > (d_a_expand, d_ja_expand, d_v, d_v_expanded, d_spMV);
+			spMV_sparse <512, T> << <Grid, Block >> > (d_a_expand, d_ja_expand, d_v, d_v_expanded, d_spMV);
 			break;
 		case 256:
-			spMV_sparse <256> << <Grid, Block >> > (d_a_expand, d_ja_expand, d_v, d_v_expanded, d_spMV);
+			spMV_sparse <256, T> << < Grid, Block >> > (d_a_expand, d_ja_expand, d_v, d_v_expanded, d_spMV);
 			break;
 		}
 	}
 
+	template <typename T>
 	void spMV_thread(dim3& Grid, dim3& Block,
 		const int* d_ia_expand,
 		const int* d_ja_expand,
-		const double* d_a,
-		const double* d_v,
-		double* d_spMV)
+		const T* d_a,
+		const T* d_v,
+		T* d_spMV)
 	{
-		checkCudaErrors(cudaMemset(d_spMV, 0, Nnode * sizeof(double)));
-		spMV_thread_kernel << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
+		checkCudaErrors(cudaMemset(d_spMV, 0, Nnode * sizeof(T)));
+		spMV_thread_kernel <T> << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
 	}
 
+	template <typename T>
 	void spMV_warp(dim3& Grid, dim3& Block,
 		const int* d_ia_expand,
 		const int* d_ja_expand,
-		const double* d_a,
-		const double* d_v,
-		double* d_spMV)
+		const T* d_a,
+		const T* d_v,
+		T* d_spMV)
 	{
 
-		checkCudaErrors(cudaMemset(d_spMV, 0, Nnode * sizeof(double)));
+		checkCudaErrors(cudaMemset(d_spMV, 0, Nnode * sizeof(T)));
 
 		switch (Block.x)
 		{
+
 		case 1024:
-			spMV_warp_kernel <1024> << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
+			spMV_warp_kernel <1024, T> << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
 			break;
 		case 512:
-			spMV_warp_kernel <512> << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
+			spMV_warp_kernel <512, T> << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
 			break;
 		case 256:
-			spMV_warp_kernel <256> << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
+			spMV_warp_kernel <256, T> << <Grid, Block >> > (d_ia_expand, d_ja_expand, d_a, d_v, d_spMV);
 			break;
+
 		}
 
 	}
 
 	/* Return the dot product of vector 1 (V_1) and vector 2 (V_2) to a host pointer - product */
-	void dot_product(dim3& Grid, dim3& Block, const double* __restrict__ d_V_1, const double* __restrict__ d_V_2, double* __restrict__ product, double* __restrict__ d_product)
+	template <typename T>
+	void dot_product(dim3& Grid, dim3& Block, const T* __restrict__ d_V_1,
+		const T* __restrict__ d_V_2, T* __restrict__ product, T* __restrict__ d_product)
 	{
 
 		int Grid_unrolled = (Grid.x - 8 * (Grid.x / 8)) + Grid.x / 8;
 
-		checkCudaErrors(cudaMemset(d_product, 0, sizeof(double))); // Initialize to 0
+		checkCudaErrors(cudaMemset(d_product, 0, sizeof(T))); // Initialize to 0
 
 		switch (Block.x)
 		{
 
 		case 1024:
-			dot_product_kernel_unroll <1024> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
+			dot_product_kernel_unroll <1024, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
 			break;
 
 		case 512:
-			dot_product_kernel_unroll <512> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
+			dot_product_kernel_unroll <512, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
 			break;
 
 		case 256:
-			dot_product_kernel_unroll <256> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
+			dot_product_kernel_unroll <256, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
 			break;
 
 		case 128:
-			dot_product_kernel_unroll <128> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
+			dot_product_kernel_unroll <128, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_product);
 			break;
 
 		}
 
-		checkCudaErrors(cudaMemcpy(product, d_product, sizeof(double), cudaMemcpyDeviceToHost));
+		checkCudaErrors(cudaMemcpy(product, d_product, sizeof(T), cudaMemcpyDeviceToHost));
 
 	}
 
 	/* Return the dot product of vector 1 - vectort 1 (V_1) and vector 1 - vector 2 (V_2) to a host pointer - product */
-	void dot_product_V2(dim3& Grid, dim3& Block, const double* __restrict__ d_V_1, const double* __restrict__ d_V_2, 
-		double* __restrict__ sum, double* __restrict__ d_sum, double* __restrict__ dot, double* __restrict__ d_dot)
+	template <typename T>
+	void dot_product_V2(dim3& Grid, dim3& Block, const T* __restrict__ d_V_1, const T* __restrict__ d_V_2,
+		T* __restrict__ sum, T* __restrict__ d_sum, T* __restrict__ dot, T* __restrict__ d_dot)
 	{
 
-		int Grid_unrolled = Grid.x / 8; // Unroll factor of 8
+		int Grid_unrolled = (Grid.x - 8 * (Grid.x / 8)) + Grid.x / 8;
 
-		checkCudaErrors(cudaMemset(d_sum, 0, sizeof(double))); // Initialize to 0
-		checkCudaErrors(cudaMemset(d_dot, 0, sizeof(double))); // Initialize to 0
+		checkCudaErrors(cudaMemset(d_sum, 0, sizeof(T))); // Initialize to 0
+		checkCudaErrors(cudaMemset(d_dot, 0, sizeof(T))); // Initialize to 0
 
 		switch (Block.x)
 		{
 
 		case 1024:
-			dot_product_kernel_V2_unroll <1024> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			dot_product_kernel_V2_unroll <1024, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
 			break;
 
 		case 512:
-			dot_product_kernel_V2_unroll <512> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			dot_product_kernel_V2_unroll <512, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
 			break;
 
 		case 256:
-			dot_product_kernel_V2_unroll <256> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			dot_product_kernel_V2_unroll <256, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
 			break;
 
 		case 128:
-			dot_product_kernel_V2_unroll <128> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
+			dot_product_kernel_V2_unroll <128, T> << <Grid_unrolled, Block >> > (d_V_1, d_V_2, d_sum, d_dot);
 			break;
 
 		}
 
-		checkCudaErrors(cudaMemcpy(sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost));
-		checkCudaErrors(cudaMemcpy(dot, d_dot, sizeof(double), cudaMemcpyDeviceToHost));
+		checkCudaErrors(cudaMemcpy(sum, d_sum, sizeof(T), cudaMemcpyDeviceToHost));
+		checkCudaErrors(cudaMemcpy(dot, d_dot, sizeof(T), cudaMemcpyDeviceToHost));
+
+	}
+
+	/* Return the vector product of vector P_{j+1} = r_{j+1} + beta_j * (P_j - omega_j*AP_j) */
+	template <typename T>
+	void p_update(dim3& Grid, dim3& Block, T* __restrict__ P, const T* __restrict__ AP, const T* __restrict__ r, const T& omega, const T& beta)
+	{
+
+		if (sizeof(T) != sizeof(double))
+		{
+			auto domega = static_cast<double>(omega);
+			auto dbeta = static_cast<double>(beta);
+			checkCudaErrors(cudaMemcpyToSymbol(d_omega, &domega, sizeof(double))); // get the constant omega factor
+			checkCudaErrors(cudaMemcpyToSymbol(d_beta, &dbeta, sizeof(double))); // get the constant beta factor
+		}
+		else
+		{
+			checkCudaErrors(cudaMemcpyToSymbol(d_omega, &omega, sizeof(double))); // get the constant omega factor
+			checkCudaErrors(cudaMemcpyToSymbol(d_beta, &beta, sizeof(double))); // get the constant beta factor
+		}
+
+		p_update_kernel <T> << <Grid, Block >> > (P, AP, r);
 
 	}
 
 	/* Return the nrm2 product of vector V to a host pointer - sum */
-	void nrm2(dim3& Grid, dim3& Block, const double* __restrict__ V, double* __restrict__ sum, double* __restrict__ d_sum)
+	template <typename T>
+	void nrm2(dim3& Grid, dim3& Block, const T* __restrict__ V, T* __restrict__ sum, T* __restrict__ d_sum)
 	{
 
-		int Grid_unrolled = Grid.x / 8; // Unroll factor of 8
+		int Grid_unrolled = (Grid.x - 8 * (Grid.x / 8)) + Grid.x / 8;
 
-		checkCudaErrors(cudaMemset(d_sum, 0, sizeof(double))); // Initialize to 0
+		checkCudaErrors(cudaMemset(d_sum, 0, sizeof(T))); // Initialize to 0
 
 		switch (Block.x)
 		{
 
 		case 1024:
-			nrm2_kernel_unroll <1024> << <Grid_unrolled, Block >> > (V, d_sum);
+			nrm2_kernel_unroll <1024, T> << <Grid_unrolled, Block >> > (V, d_sum);
 			break;
 
 		case 512:
-			nrm2_kernel_unroll <512> << <Grid_unrolled, Block >> > (V, d_sum);
+			nrm2_kernel_unroll <512, T> << <Grid_unrolled, Block >> > (V, d_sum);
 			break;
 
 		case 256:
-			nrm2_kernel_unroll <256> << <Grid_unrolled, Block >> > (V, d_sum);
+			nrm2_kernel_unroll <256, T> << <Grid_unrolled, Block >> > (V, d_sum);
 			break;
 
 		case 128:
-			nrm2_kernel_unroll <128> << <Grid_unrolled, Block >> > (V, d_sum);
+			nrm2_kernel_unroll <128, T> << <Grid_unrolled, Block >> > (V, d_sum);
 			break;
 
 		}
 
-		checkCudaErrors(cudaMemcpy(sum, d_sum, sizeof(double), cudaMemcpyDeviceToHost));
+		checkCudaErrors(cudaMemcpy(sum, d_sum, sizeof(T), cudaMemcpyDeviceToHost));
 
 		sum[0] = sqrt(sum[0]); // doing the square root on the host side
 
 	}
 
-	/* Return the vector product of vector P_{j+1} = r_{j+1} + beta_j * (P_j - omega_j*AP_j) */
-	void p_update(dim3& Grid, dim3& Block, double* __restrict__ P, const double* __restrict__ AP, const double* __restrict__ r, const double& omega, const double& beta)
-	{
-
-		checkCudaErrors(cudaMemcpyToSymbol(d_omega, &omega, sizeof(double))); // get the constant omega factor
-		checkCudaErrors(cudaMemcpyToSymbol(d_beta, &beta, sizeof(double))); // get the constant beta factor
-
-		p_update_kernel << <Grid, Block >> > (P, AP, r);
-
-	}
-
 	/* Return the vector product of vector y = y + scale * x */
-	void axpy(dim3& Grid, dim3& Block, const double* __restrict__ x, double* __restrict__ y, const double& scale)
+	template <typename T>
+	void axpy(dim3& Grid, dim3& Block, const T* __restrict__ x, T* __restrict__ y, const T& scale)
 	{
-
-		checkCudaErrors(cudaMemcpyToSymbol(d_scale, &scale, sizeof(double))); // get the constant scale factor
+		if (sizeof(T) != sizeof(double))
+		{
+			auto dscale = static_cast<double>(scale);
+			checkCudaErrors(cudaMemcpyToSymbol(d_scale, &dscale, sizeof(double))); // get the constant scale factor
+		}
+		else
+		{
+			checkCudaErrors(cudaMemcpyToSymbol(d_scale, &scale, sizeof(double))); // get the constant scale factor
+		}
 
 		axpy_kernal << <Grid, Block >> > (x, y);
 
 	}
 
 	/* Return the 2 vector product of vector y1 = y1 + scale * x1 | y2 = y2 - scale * x2 */
-	void axpy_V2(dim3& Grid, dim3& Block, const double* __restrict__ x1, double* __restrict__ y1, const double* __restrict__ x2, double* __restrict__ y2, const double& scale)
+	template <typename T>
+	void axpy_V2(dim3& Grid, dim3& Block, const T* __restrict__ x1, T* __restrict__ y1, const T* __restrict__ x2, T* __restrict__ y2, const T& scale)
 	{
 
-		checkCudaErrors(cudaMemcpyToSymbol(d_scale, &scale, sizeof(double))); // get the constant scale factor
+		if (sizeof(T) != sizeof(double))
+		{
+			auto dscale = static_cast<double>(scale);
+			checkCudaErrors(cudaMemcpyToSymbol(d_scale, &dscale, sizeof(double))); // get the constant scale factor
+		}
+		else
+		{
+			checkCudaErrors(cudaMemcpyToSymbol(d_scale, &scale, sizeof(double))); // get the constant scale factor
+		}
 
 		axpy_kernal_V2 << <Grid, Block >> > (x1, y1, x2, y2);
 
+	}
+
+	/* Return the scaled vector y = scale * y */
+	template <typename T>
+	void scale(dim3& Grid, dim3& Block, T* y, const T& scale)
+	{
+		if (sizeof(T) != sizeof(double))
+		{
+			auto dscale = static_cast<double>(scale);
+			checkCudaErrors(cudaMemcpyToSymbol(d_scale, &dscale, sizeof(double))); // get the constant scale factor
+		}
+		else
+		{
+			checkCudaErrors(cudaMemcpyToSymbol(d_scale, &scale, sizeof(double))); // get the constant scale factor
+		}
+
+		Dscal_kernel << <Grid, Block >> > (y);
+	}
+
+	/* Return the copied vector y = x */
+	template <typename T>
+	void copy(dim3& Grid, dim3& Block, const T* x, T* y)
+	{
+
+		Dcopy_kernel << <Grid, Block >> > (x, y);
 	}
 
 	void get_const_int_symbol(const int& h_symbol)
@@ -729,8 +711,60 @@ namespace cuBLAS {
 		checkCudaErrors(cudaGetSymbolAddress((void**)&ptr, d_Nnode)); // On device side, it doesn't really care what is the type that the pointer is pointing to
 																	  // It only needs a void pointer to allocate the memory space.
 		*/
-		checkCudaErrors(cudaMemcpyToSymbol(d_Nnode, &h_symbol, sizeof(int))); // For device variable, you can also assign a void* to any type variable (e.g int/double/double)
+		checkCudaErrors(cudaMemcpyToSymbol(d_Nnode, &h_symbol, sizeof(int))); // For device variable, you can also assign a void* to any type variable (e.g int/float/float)
 		// For host variable, however, you can only assign pointer to array or pointer type variable.
 		// & operator is needed for host variable to be assigned by pointer
 	}
+
+	/* Forced template instantiation - Double & Float */
+
+	template void spMV_M(dim3& Grid, dim3& Block, const double* d_M, const double* d_V, double* d_Target);
+	template void spMV_M(dim3& Grid, dim3& Block, const float* d_M, const float* d_V, float* d_Target);
+
+	template void spMV(dim3& Grid, dim3& Block, const double* d_a_expand, const int* d_ja_expand,
+		const double* d_v, double* d_v_expanded, double* d_spMV);
+	template void spMV(dim3& Grid, dim3& Block, const float* d_a_expand, const int* d_ja_expand,
+		const float* d_v, float* d_v_expanded, float* d_spMV);
+
+	template void spMV_thread(dim3& Grid, dim3& Block, const int* d_ia_expand, const int* d_ja_expand,
+		const double* d_a, const double* d_v, double* d_spMV);
+	template void spMV_thread(dim3& Grid, dim3& Block, const int* d_ia_expand, const int* d_ja_expand,
+		const float* d_a, const float* d_v, float* d_spMV);
+
+	template void spMV_warp(dim3& Grid, dim3& Block, const int* d_ia_expand, const int* d_ja_expand,
+		const double* d_a, const double* d_v, double* d_spMV);
+	template void spMV_warp(dim3& Grid, dim3& Block, const int* d_ia_expand, const int* d_ja_expand,
+		const float* d_a, const float* d_v, float* d_spMV);
+
+	template void dot_product(dim3& Grid, dim3& Block, const double* __restrict__ d_V_1,
+		const double* __restrict__ d_V_2, double* __restrict__ product, double* __restrict__ d_product);
+	template void dot_product(dim3& Grid, dim3& Block, const float* __restrict__ d_V_1,
+		const float* __restrict__ d_V_2, float* __restrict__ product, float* __restrict__ d_product);
+
+	template void dot_product_V2(dim3& Grid, dim3& Block, const double* __restrict__ d_V_1, const double* __restrict__ d_V_2,
+		double* __restrict__ sum, double* __restrict__ d_sum, double* __restrict__ dot, double* __restrict__ d_dot);
+	template void dot_product_V2(dim3& Grid, dim3& Block, const float* __restrict__ d_V_1, const float* __restrict__ d_V_2,
+		float* __restrict__ sum, float* __restrict__ d_sum, float* __restrict__ dot, float* __restrict__ d_dot);
+
+	template void p_update(dim3& Grid, dim3& Block, double* __restrict__ P, const double* __restrict__ AP,
+		const double* __restrict__ r, const double& omega, const double& beta);
+	template void p_update(dim3& Grid, dim3& Block, float* __restrict__ P, const float* __restrict__ AP,
+		const float* __restrict__ r, const float& omega, const float& beta);
+
+	template void nrm2(dim3& Grid, dim3& Block, const double* __restrict__ V, double* __restrict__ sum, double* __restrict__ d_sum);
+	template void nrm2(dim3& Grid, dim3& Block, const float* __restrict__ V, float* __restrict__ sum, float* __restrict__ d_sum);
+
+	template void axpy(dim3& Grid, dim3& Block, const double* __restrict__ x, double* __restrict__ y, const double& scale);
+	template void axpy(dim3& Grid, dim3& Block, const float* __restrict__ x, float* __restrict__ y, const float& scale);
+
+	template void axpy_V2(dim3& Grid, dim3& Block, const double* __restrict__ x1, double* __restrict__ y1,
+		const double* __restrict__ x2, double* __restrict__ y2, const double& scale);
+	template void axpy_V2(dim3& Grid, dim3& Block, const float* __restrict__ x1, float* __restrict__ y1,
+		const float* __restrict__ x2, float* __restrict__ y2, const float& scale);
+
+	template void scale(dim3& Grid, dim3& Block, double* y, const double& scale);
+	template void scale(dim3& Grid, dim3& Block, float* y, const float& scale);
+
+	template void copy(dim3& Grid, dim3& Block, const double* x, double* y);
+	template void copy(dim3& Grid, dim3& Block, const float* x, float* y);
 }
