@@ -61,3 +61,6 @@ make
 ```
 
 The executable is named ```LFDTD_PARDISO_CUDA```
+
+### Reference
+Y. Wang, Y. Guo, J. Corsello and M. Swaminathan, "GPU Accelerated Matrix Solution Using Novel Preconditioner for Three Dimensional Laguerre-FDTD Method," in IEEE Journal on Multiscale and Multiphysics Computational Techniques, vol. 10, pp. 259-270, 2025, doi: 10.1109/JMMCT.2025.3572490.
